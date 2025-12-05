@@ -6,16 +6,14 @@ import (
 	"log/slog"
 	"net"
 	"strings"
-	"time"
 
 	p "gitlab.univ-nantes.fr/iutna.info2.r305/proj/internal/pkg/proto"
 )
 
 func RunServer(port *string) {
-
-	l, e := net.Listen("tcp", ":"+*port)
-	if e != nil {
-		slog.Error(e.Error())
+	l, err := net.Listen("tcp", ":"+*port)
+	if err != nil {
+		slog.Error(err.Error())
 		return
 	}
 	defer func() {
@@ -24,20 +22,16 @@ func RunServer(port *string) {
 	}()
 	slog.Debug("Now listening on port " + *port)
 
-	c, e := l.Accept()
-	if e != nil {
-		slog.Error(e.Error())
-		return
+	for {
+		c, err := l.Accept()
+		if err != nil {
+			slog.Error(err.Error())
+			continue
+		}
+		slog.Info("Incoming connection from " + c.RemoteAddr().String())
+		// Handle each client concurrently
+		go HandleClient(c)
 	}
-	defer func() {
-		c.Close()
-		slog.Info("Connection closed")
-	}()
-	slog.Info("Incoming connection from " + c.RemoteAddr().String())
-
-	time.Sleep(10 * time.Second)
-
-	return
 }
 
 // Gère la communication avec un client unique

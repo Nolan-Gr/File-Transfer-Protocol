@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"io"
 	"log"
+	"log/slog"
 	"math/rand"
 	"net"
 	"strings"
@@ -11,9 +12,24 @@ import (
 	p "gitlab.univ-nantes.fr/iutna.info2.r305/proj/internal/pkg/proto"
 )
 
+func Run(remote string) {
+
+	c, err := net.Dial("tcp", remote)
+	if err != nil {
+		slog.Error(err.Error())
+		return
+	}
+	slog.Info("Connected to " + c.RemoteAddr().String())
+
+	// Delegue
+	RunClient(c)
+
+	slog.Debug("Connection closed")
+}
+
 func RunClient(conn net.Conn) {
 	defer conn.Close()
-	log.Println("Connecté au serveur:", conn.RemoteAddr().String())
+	slog.Info("Connecté au serveur:", conn.RemoteAddr().String())
 
 	reader := bufio.NewReader(conn)
 	writer := bufio.NewWriter(conn)
