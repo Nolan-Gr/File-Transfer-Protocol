@@ -65,7 +65,6 @@ func RunClient(conn net.Conn) {
 	// Étape 4 & Répétition: Tirer un nombre aléatoire N et envoyer N messages "data",
 	// en attendant "ok" à chaque fois.
 	n := randomInt(1, 5)
-	log.Printf("Le client va envoyer %d messages 'data'.", n)
 
 	for i := 0; i < n; i++ {
 		// Le client envoie "data"
