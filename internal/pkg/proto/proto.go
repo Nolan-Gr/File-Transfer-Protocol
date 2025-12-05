@@ -6,7 +6,7 @@ import (
 	"strings"
 )
 
-func send_message(out *bufio.Writer, message string) error {
+func Send_message(out *bufio.Writer, message string) error {
 	if !strings.HasSuffix(message, "\n") {
 		message += "\n"
 	}
@@ -23,7 +23,7 @@ func send_message(out *bufio.Writer, message string) error {
 	return nil
 }
 
-func receive_message(in *bufio.Reader) (string, error) {
+func Receive_message(in *bufio.Reader) (string, error) {
 	message, err := in.ReadString('\n')
 	if err != nil {
 		return "", err

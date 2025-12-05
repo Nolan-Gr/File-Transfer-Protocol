@@ -1,41 +1,25 @@
 package client
 
 import (
-	"log/slog"
-	"net"
 	"bufio"
+	"io"
 	"log"
-	"os"
+	"math/rand"
+	"net"
 	"strings"
-	"gitlab.univ-nantes.fr/iutna.info2.r305/proj/internal/pkg/proto"
+
+	p "gitlab.univ-nantes.fr/iutna.info2.r305/proj/internal/pkg/proto"
 )
 
-func Run(remote string) {
-
-	c, e := net.Dial("tcp", remote)
-	if e != nil {
-		slog.Error(e.Error())
-		return
-	}
-	defer func() {
-		c.Close()
-		slog.Debug("Connection closed")
-	}()
-	slog.Info("Connected to " + c.RemoteAddr().String())
-
-	return
-}
-
-
-func runClient(conn net.Conn) {
+func RunClient(conn net.Conn) {
 	defer conn.Close()
 	log.Println("Connecté au serveur:", conn.RemoteAddr().String())
 
 	reader := bufio.NewReader(conn)
 	writer := bufio.NewWriter(conn)
-	
+
 	// Étape 1 : Attendre le message "hello" du serveur
-	msg, err := receive_message(reader)
+	msg, err := p.Receive_message(reader)
 	if err != nil {
 		log.Println("Erreur lors de la réception de 'hello' ou déconnexion:", err)
 		return
@@ -46,13 +30,13 @@ func runClient(conn net.Conn) {
 	}
 
 	// Étape 2 : Le client répond "start"
-	if err := send_message(writer, "start"); err != nil {
+	if err := p.Send_message(writer, "start"); err != nil {
 		log.Println("Erreur lors de l'envoi de 'start':", err)
 		return
 	}
-	
+
 	// Étape 3 : Attendre le message "ok" du serveur
-	msg, err = receive_message(reader)
+	msg, err = p.Receive_message(reader)
 	if err != nil {
 		log.Println("Erreur lors de la réception de 'ok' ou déconnexion:", err)
 		return
@@ -69,13 +53,13 @@ func runClient(conn net.Conn) {
 
 	for i := 0; i < n; i++ {
 		// Le client envoie "data"
-		if err := send_message(writer, "data"); err != nil {
+		if err := p.Send_message(writer, "data"); err != nil {
 			log.Println("Erreur lors de l'envoi de 'data':", err)
 			return
 		}
 
 		// Attendre la réponse "ok" du serveur
-		msg, err = receive_message(reader)
+		msg, err = p.Receive_message(reader)
 		if err != nil {
 			log.Println("Erreur lors de la réception de 'ok' (après data) ou déconnexion:", err)
 			return
@@ -87,16 +71,16 @@ func runClient(conn net.Conn) {
 	}
 
 	// Étape 6 : Le client répond "end"
-	if err := send_message(writer, "end"); err != nil {
+	if err := p.Send_message(writer, "end"); err != nil {
 		log.Println("Erreur lors de l'envoi de 'end':", err)
 		return
 	}
 
 	// Étape 7 : Attendre le message "ok" final du serveur
-	msg, err = receive_message(reader)
+	msg, err = p.Receive_message(reader)
 	if err != nil {
 		// La déconnexion immédiate du serveur après l'envoi du "ok" est possible
-		if err != net.ErrClosed && err != os.EOF {
+		if err != net.ErrClosed && err != io.EOF {
 			log.Println("Erreur lors de la réception de 'ok' final ou déconnexion:", err)
 		} else {
 			log.Println("Connexion fermée par le serveur après 'end'.")
@@ -107,17 +91,11 @@ func runClient(conn net.Conn) {
 		log.Println("Protocole échoué : Attendu 'ok' final, reçu:", strings.TrimSpace(msg))
 		return
 	}
-	
+
 	log.Println("Protocole terminé avec succès. Déconnexion du client.")
 	// Le defer conn.Close() s'occupera de la fermeture
 }
 
-func main() {
-	// Tenter de se connecter au serveur
-	conn, err := net.Dial("tcp", SERVER_ADDR)
-	if err != nil {
-		log.Fatal("Erreur de connexion au serveur:", err)
-	}
-	
-	runClient(conn)
+func randomInt(i int, i2 int) int {
+	return rand.Intn(i2-i+1) + i
 }

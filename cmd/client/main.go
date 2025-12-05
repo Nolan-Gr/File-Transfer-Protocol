@@ -2,7 +2,9 @@ package main
 
 import (
 	"flag"
+	"log"
 	"log/slog"
+	"net"
 
 	"gitlab.univ-nantes.fr/iutna.info2.r305/proj/internal/app/client"
 )
@@ -22,6 +24,11 @@ func parseArgs() (remote string) {
 }
 
 func main() {
-	remote := parseArgs()
-	client.Run(remote)
+	// Tenter de se connecter au serveur
+	conn, err := net.Dial("tcp", "localhost:8080")
+	if err != nil {
+		log.Fatal("Erreur de connexion au serveur:", err)
+	}
+
+	client.RunClient(conn)
 }
