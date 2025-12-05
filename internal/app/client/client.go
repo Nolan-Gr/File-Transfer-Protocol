@@ -2,6 +2,7 @@ package client
 
 import (
 	"bufio"
+	"fmt"
 	"io"
 	"log"
 	"log/slog"
@@ -62,26 +63,15 @@ func RunClient(conn net.Conn) {
 		return
 	}
 
-	// Étape 4 & Répétition: Tirer un nombre aléatoire N et envoyer N messages "data",
-	// en attendant "ok" à chaque fois.
-	n := randomInt(1, 5)
+	// Étape 4: le client entre ce qu'il souhaite dans le terminal
+	for {
+		var commande string
+		fmt.Print("Entrez une commande à envoyer au serveur (ou 'end' pour terminer) : ")
+		fmt.Scanln(&commande)
 
-	for i := 0; i < n; i++ {
-		// Le client envoie "data"
-		if err := p.Send_message(writer, "data"); err != nil {
-			log.Println("Erreur lors de l'envoi de 'data':", err)
-			return
-		}
-
-		// Attendre la réponse "ok" du serveur
-		msg, err = p.Receive_message(reader)
-		if err != nil {
-			log.Println("Erreur lors de la réception de 'ok' (après data) ou déconnexion:", err)
-			return
-		}
-		if strings.TrimSpace(msg) != "ok" {
-			log.Println("Protocole échoué : Attendu 'ok' (après data), reçu:", strings.TrimSpace(msg))
-			return
+		// Étape 5 : Le client se déconnecte
+		if strings.ToUpper(commande) == "END" {
+			break
 		}
 	}
 
