@@ -5,6 +5,8 @@ import (
 	"log"
 	"log/slog"
 	"net"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -85,32 +87,72 @@ func HandleClient(conn net.Conn) {
 
 		// Enlève les espaces dans le message
 		cleanedMsg := strings.TrimSpace(msg)
+		log.Println(cleanedMsg)
 
-		// Regarde ce que le client a envoyé
-		switch cleanedMsg {
-		case "start":
-			// Client dit "start" -> on répond "ok"
+		// Client dit "GET ..."
+		var commGet = strings.Split(cleanedMsg, " ")
+		if len(commGet) == 2 && commGet[0] == "GET" {
+			log.Println("Commande GET reçue pour:", commGet[1])
+
+			var fichiers, err = os.ReadDir("Docs")
+			if err != nil {
+				log.Fatal(err)
+			}
+			var found = false
+
+			for _, fichier := range fichiers {
+				if commGet[1] == fichier.Name() {
+					found = true
+					log.Println("Fichier trouvé:", fichier.Name())
+					var path = filepath.Join("Docs", fichier.Name())
+
+					// envoie du start
+					if err := p.Send_message(writer, "Start"); err != nil {
+						log.Println("Erreur lors de l'envoi de 'Start':", err)
+						return
+					}
+					// lecture du contenu
+					var data, err = os.ReadFile(path)
+					if err != nil {
+						log.Println("Ne peut pas lire le contenu du fichier :", err)
+						return
+					}
+					// transfert du fichier
+					_, err = conn.Write(data)
+					if err != nil {
+						log.Println("N'a pas pû transférer le fichier :", err)
+					}
+				}
+			}
+			// gestion du FileUnknown
+			if !found {
+				log.Println("Fichier non trouvé:", commGet[1]) // ← Log
+				if err := p.Send_message(writer, "FileUnknown"); err != nil {
+					log.Println("Erreur lors de l'envoi de 'FileUnknown':", err)
+					return
+				}
+			}
+			// ok du client
+			var response, _ = p.Receive_message(reader)
+			log.Println("Réponse du client:", response)
+			continue
+
+		} else if cleanedMsg == "start" { // ← Remplace le switch par des else if
 			if err := p.Send_message(writer, "ok"); err != nil {
 				log.Println("Erreur lors de l'envoi de 'ok' après 'start':", err)
 				return
 			}
-
-		case "data":
-			// Client envoie des données -> on répond "ok"
+		} else if cleanedMsg == "data" {
 			if err := p.Send_message(writer, "ok"); err != nil {
 				log.Println("Erreur lors de l'envoi de 'ok' après 'data':", err)
 				return
 			}
-
-		case "end":
-			// Client dit "end" -> on répond "ok" et on arrête
+		} else if cleanedMsg == "end" {
 			if err := p.Send_message(writer, "ok"); err != nil {
 				log.Println("Erreur lors de l'envoi de 'ok' après 'end':", err)
 			}
 			return
-
-		default:
-			// Le client a envoyé un truc bizarre -> on arrête
+		} else {
 			log.Println("Message inattendu du client:", cleanedMsg)
 			return
 		}
