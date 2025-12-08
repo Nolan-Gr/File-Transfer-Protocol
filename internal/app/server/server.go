@@ -93,50 +93,9 @@ func HandleClient(conn net.Conn) {
 		var commGet = strings.Split(cleanedMsg, " ")
 		if len(commGet) == 2 && commGet[0] == "GET" {
 			log.Println("Commande GET reçue pour:", commGet[1])
-
-			var fichiers, err = os.ReadDir("Docs")
-			if err != nil {
-				log.Fatal(err)
-			}
-			var found = false
-
-			for _, fichier := range fichiers {
-				if commGet[1] == fichier.Name() {
-					found = true
-					log.Println("Fichier trouvé:", fichier.Name())
-					var path = filepath.Join("Docs", fichier.Name())
-
-					// envoie du start
-					if err := p.Send_message(writer, "Start"); err != nil {
-						log.Println("Erreur lors de l'envoi de 'Start':", err)
-						return
-					}
-					// lecture du contenu
-					var data, err = os.ReadFile(path)
-					if err != nil {
-						log.Println("Ne peut pas lire le contenu du fichier :", err)
-						return
-					}
-					// transfert du fichier
-					_, err = conn.Write(data)
-					if err != nil {
-						log.Println("N'a pas pû transférer le fichier :", err)
-					}
-				}
-			}
-			// gestion du FileUnknown
-			if !found {
-				log.Println("Fichier non trouvé:", commGet[1]) // ← Log
-				if err := p.Send_message(writer, "FileUnknown"); err != nil {
-					log.Println("Erreur lors de l'envoi de 'FileUnknown':", err)
-					return
-				}
-			}
-			// ok du client
-			var response, _ = p.Receive_message(reader)
-			log.Println("Réponse du client:", response)
-			continue
-
+			Getserver(commGet, conn, writer, reader)
+		
+		
 		} else if cleanedMsg == "start" { // ← Remplace le switch par des else if
 			if err := p.Send_message(writer, "ok"); err != nil {
 				log.Println("Erreur lors de l'envoi de 'ok' après 'start':", err)
@@ -174,4 +133,48 @@ func ClientLogOut(conn net.Conn) {
 	if err != nil {
 		return
 	}
+}
+
+func Getserver(commGet []string, conn net.Conn, writer *bufio.Writer, reader *bufio.Reader){
+	var fichiers, err = os.ReadDir("Docs")
+	if err != nil {
+		log.Fatal(err)
+	}
+	var found = false
+
+	for _, fichier := range fichiers {
+		if commGet[1] == fichier.Name() {
+			found = true
+			log.Println("Fichier trouvé:", fichier.Name())
+			var path = filepath.Join("Docs", fichier.Name())
+
+			// envoie du start
+			if err := p.Send_message(writer, "Start"); err != nil {
+				log.Println("Erreur lors de l'envoi de 'Start':", err)
+				return
+			}
+			// lecture du contenu
+			var data, err = os.ReadFile(path)
+			if err != nil {
+				log.Println("Ne peut pas lire le contenu du fichier :", err)
+				return
+			}
+			// transfert du fichier
+			_, err = conn.Write(data)
+			if err != nil {
+				log.Println("N'a pas pû transférer le fichier :", err)
+			}
+		}
+	}
+	// gestion du FileUnknown
+	if !found {
+		log.Println("Fichier non trouvé:", commGet[1]) // ← Log
+		if err := p.Send_message(writer, "FileUnknown"); err != nil {
+			log.Println("Erreur lors de l'envoi de 'FileUnknown':", err)
+			return
+		}
+	}
+	// ok du client
+	var response, _ = p.Receive_message(reader)
+	log.Println("Réponse du client:", response)
 }

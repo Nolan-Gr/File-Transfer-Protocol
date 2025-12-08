@@ -75,58 +75,9 @@ func RunClient(conn net.Conn) {
 		// Le client se déconnecte
 		if strings.ToUpper(splitGET[0]) == "END" {
 			break
+			// Le client envoie une commande GET
 		} else if strings.ToUpper(splitGET[0]) == "GET" {
-			// Envoie la commande GET au serveur
-			if err := p.Send_message(writer, line); err != nil {
-				log.Println("Erreur lors de l'envoi de la commande:", err)
-				return
-			}
-			// Attend la réponse du serveur
-			var response, err = p.Receive_message(reader)
-			if err != nil {
-				log.Println("Erreur lors de la réception de la réponse:", err)
-				return
-			}
-			response = strings.TrimSpace(response)
-			log.Println(response)
-
-			// fichier introuvable
-			if response == "FileUnknown" {
-				log.Println("Fichier introuvable sur le serveur")
-
-				// Envoie "OK" pour confirmer la réception de FileUnknown
-				if err := p.Send_message(writer, "OK"); err != nil {
-					log.Println("Erreur lors de l'envoi de 'OK':", err)
-					return
-				}
-
-			} else if response == "Start" {
-				// Le serveur va envoyer le fichier
-				// Lire tout le contenu
-				data, err := io.ReadAll(reader)
-				if err != nil {
-					log.Println("Erreur lors de la lecture du fichier:", err)
-					return
-				}
-				log.Println(string(data))
-
-				// Sauvegarde le fichier localement avec le même nom
-				err = os.WriteFile(splitGET[1], data, 770)
-				if err != nil {
-					log.Println("Erreur lors de la sauvegarde du fichier:", err)
-					return
-				}
-
-				log.Println("Fichier '%s' reçu et sauvegardé (%d octets)\n", splitGET[1], len(data))
-
-				// Envoie "OK" pour confirmer la bonne réception
-				if err := p.Send_message(writer, "OK"); err != nil {
-					log.Println("Erreur lors de l'envoi de 'OK':", err)
-					return
-				}
-			} else {
-				log.Println("Réponse inattendue du serveur:", response)
-			}
+			Getclient(line, splitGET, conn, writer, reader)
 		}
 	}
 
@@ -154,4 +105,57 @@ func RunClient(conn net.Conn) {
 
 	log.Println("Protocole terminé avec succès. Déconnexion du client.")
 	// Le defer conn.Close() s'occupera de la fermeture
+}
+
+func Getclient(line string, splitGET []string, conn net.Conn, writer *bufio.Writer, reader *bufio.Reader) {
+	if err := p.Send_message(writer, line); err != nil {
+		log.Println("Erreur lors de l'envoi de la commande:", err)
+		return
+	}
+	// Attend la réponse du serveur
+	var response, err = p.Receive_message(reader)
+	if err != nil {
+		log.Println("Erreur lors de la réception de la réponse:", err)
+		return
+	}
+	response = strings.TrimSpace(response)
+	log.Println(response)
+
+	// fichier introuvable
+	if response == "FileUnknown" {
+		log.Println("Fichier introuvable sur le serveur")
+
+		// Envoie "OK" pour confirmer la réception de FileUnknown
+		if err := p.Send_message(writer, "OK"); err != nil {
+			log.Println("Erreur lors de l'envoi de 'OK':", err)
+			return
+		}
+
+	} else if response == "Start" {
+		// Le serveur va envoyer le fichier
+		// Lire tout le contenu
+		data, err := io.ReadAll(reader)
+		if err != nil {
+			log.Println("Erreur lors de la lecture du fichier:", err)
+			return
+		}
+		log.Println(string(data))
+
+		// Sauvegarde le fichier localement avec le même nom
+		err = os.WriteFile(splitGET[1], data, 770)
+		if err != nil {
+			log.Println("Erreur lors de la sauvegarde du fichier:", err)
+			return
+		}
+
+		log.Println("Fichier '%s' reçu et sauvegardé (%d octets)\n", splitGET[1], len(data))
+
+		// Envoie "OK" pour confirmer la bonne réception
+		if err := p.Send_message(writer, "OK"); err != nil {
+			log.Println("Erreur lors de l'envoi de 'OK':", err)
+			return
+		}
+	} else {
+		log.Println("Réponse inattendue du serveur:", response)
+	}
 }
