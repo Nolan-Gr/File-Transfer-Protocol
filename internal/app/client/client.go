@@ -134,21 +134,21 @@ func Getclient(line string, splitGET []string, conn net.Conn, writer *bufio.Writ
 	} else if response == "Start" {
 		// Le serveur va envoyer le fichier
 		// Lire tout le contenu
-		data, err := io.ReadAll(reader)
+		data, err := p.Receive_message(reader)
 		if err != nil {
 			log.Println("Erreur lors de la lecture du fichier:", err)
 			return
 		}
-		log.Println(string(data))
 
 		// Sauvegarde le fichier localement avec le même nom
-		err = os.WriteFile(splitGET[1], data, 770)
+		err = os.WriteFile(splitGET[1], []byte(data), 770)
 		if err != nil {
 			log.Println("Erreur lors de la sauvegarde du fichier:", err)
 			return
 		}
 
-		log.Println("Fichier '%s' reçu et sauvegardé (%d octets)\n", splitGET[1], len(data))
+		log.Printf("Fichier '%s' reçu et sauvegardé (%d octets)\n", splitGET[1], len(data))
+		log.Printf("Contenu du fichier '%s':\n%s\n", splitGET[1], string(data))
 
 		// Envoie "OK" pour confirmer la bonne réception
 		if err := p.Send_message(writer, "OK"); err != nil {

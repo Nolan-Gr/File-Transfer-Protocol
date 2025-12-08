@@ -94,8 +94,7 @@ func HandleClient(conn net.Conn) {
 		if len(commGet) == 2 && commGet[0] == "GET" {
 			log.Println("Commande GET reçue pour:", commGet[1])
 			Getserver(commGet, conn, writer, reader)
-		
-		
+
 		} else if cleanedMsg == "start" { // ← Remplace le switch par des else if
 			if err := p.Send_message(writer, "ok"); err != nil {
 				log.Println("Erreur lors de l'envoi de 'ok' après 'start':", err)
@@ -135,7 +134,7 @@ func ClientLogOut(conn net.Conn) {
 	}
 }
 
-func Getserver(commGet []string, conn net.Conn, writer *bufio.Writer, reader *bufio.Reader){
+func Getserver(commGet []string, conn net.Conn, writer *bufio.Writer, reader *bufio.Reader) {
 	var fichiers, err = os.ReadDir("Docs")
 	if err != nil {
 		log.Fatal(err)
@@ -160,7 +159,7 @@ func Getserver(commGet []string, conn net.Conn, writer *bufio.Writer, reader *bu
 				return
 			}
 			// transfert du fichier
-			_, err = conn.Write(data)
+			err = p.Send_message(writer, string(data))
 			if err != nil {
 				log.Println("N'a pas pû transférer le fichier :", err)
 			}
