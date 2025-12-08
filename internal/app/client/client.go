@@ -78,6 +78,8 @@ func RunClient(conn net.Conn) {
 			// Le client envoie une commande GET
 		} else if strings.ToUpper(splitGET[0]) == "GET" {
 			Getclient(line, splitGET, conn, writer, reader)
+		} else if strings.ToUpper(splitGET[0]) == "List" {
+
 		}
 	}
 
@@ -157,5 +159,39 @@ func Getclient(line string, splitGET []string, conn net.Conn, writer *bufio.Writ
 		}
 	} else {
 		log.Println("Réponse inattendue du serveur:", response)
+	}
+}
+
+func ListClient(line string, splitGET []string, conn net.Conn, writer *bufio.Writer, reader *bufio.Reader) {
+	if err := p.Send_message(writer, line); err != nil {
+		log.Println("Erreur lors de l'envoi de la commande:", err)
+		return
+	}
+	// Attend la réponse du serveur
+	var response, err = p.Receive_message(reader)
+	if err != nil {
+		log.Println("Erreur lors de la réception de la réponse:", err)
+		return
+	}
+	response = strings.TrimSpace(response)
+	log.Println(response)
+
+	if response == "Start" {
+		// Le serveur va envoyer le fichier
+		// Lire tout le contenu
+		if err := p.Send_message(writer, "OK"); err != nil {
+			log.Println("Erreur lors de l'envoi de 'OK':", err)
+			return
+		}
+		data, err := p.Receive_message(reader)
+		if err != nil {
+			log.Println("Erreur lors de la lecture du fichier:", err)
+			return
+		}
+		log.Println(data)
+		if err := p.Send_message(writer, "OK"); err != nil {
+			log.Println("Erreur lors de l'envoi de 'OK':", err)
+			return
+		}
 	}
 }

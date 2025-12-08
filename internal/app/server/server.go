@@ -110,6 +110,8 @@ func HandleClient(conn net.Conn) {
 				log.Println("Erreur lors de l'envoi de 'ok' après 'end':", err)
 			}
 			return
+		} else if cleanedMsg == "List" {
+			ListServer(writer, reader)
 		} else {
 			log.Println("Message inattendu du client:", cleanedMsg)
 			return
@@ -176,4 +178,24 @@ func Getserver(commGet []string, conn net.Conn, writer *bufio.Writer, reader *bu
 	// ok du client
 	var response, _ = p.Receive_message(reader)
 	log.Println("Réponse du client:", response)
+}
+
+func ListServer(writer *bufio.Writer, reader *bufio.Reader) {
+	var fichiers, err = os.ReadDir("Docs")
+	var list = ""
+	var size = 0
+	for _, fichier := range fichiers {
+		if err := p.Send_message(writer, "Start"); err != nil {
+			log.Println("Erreur lors de l'envoi de 'Start':", err)
+			return
+		}
+		list = list + fichier.Name() + "\n"
+		size = size + 1
+
+	}
+	if err != nil {
+		log.Fatal(err)
+	}
+	list = "FileCnt" + string(size) + list
+	p.Send_message(writer, list)
 }
