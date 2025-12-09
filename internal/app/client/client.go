@@ -78,8 +78,8 @@ func RunClient(conn net.Conn) {
 			// Le client envoie une commande GET
 		} else if strings.ToUpper(splitGET[0]) == "GET" {
 			Getclient(line, splitGET, conn, writer, reader)
-		} else if strings.ToUpper(splitGET[0]) == "List" {
-
+		} else if strings.ToUpper(splitGET[0]) == "LIST" {
+			ListClient(line, splitGET, conn, writer, reader)
 		}
 	}
 
@@ -188,10 +188,9 @@ func ListClient(line string, splitGET []string, conn net.Conn, writer *bufio.Wri
 			log.Println("Erreur lors de la lecture du fichier:", err)
 			return
 		}
-		log.Println(data)
-		if err := p.Send_message(writer, "OK"); err != nil {
-			log.Println("Erreur lors de l'envoi de 'OK':", err)
-			return
+		var datas = strings.Split(data, "--")
+		for newdata := range datas {
+			log.Println(datas[newdata])
 		}
 	}
 }

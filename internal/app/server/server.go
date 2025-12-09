@@ -7,6 +7,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -184,18 +185,28 @@ func ListServer(writer *bufio.Writer, reader *bufio.Reader) {
 	var fichiers, err = os.ReadDir("Docs")
 	var list = ""
 	var size = 0
+	log.Println("fichiers :", fichiers)
 	for _, fichier := range fichiers {
 		if err := p.Send_message(writer, "Start"); err != nil {
 			log.Println("Erreur lors de l'envoi de 'Start':", err)
 			return
 		}
-		list = list + fichier.Name() + "\n"
-		size = size + 1
-
+		data, err := p.Receive_message(reader)
+		log.Println("data:", data)
+		if err != nil {
+			log.Println("Erreur lors de la lecture du fichier:", err)
+			return
+		} else if strings.TrimSpace(data) == "OK" {
+			log.Println("a")
+			list = " --" + list + fichier.Name()
+			size = size + 1
+			log.Println("taile :", list, size)
+		}
 	}
 	if err != nil {
 		log.Fatal(err)
 	}
-	list = "FileCnt" + string(size) + list
-	p.Send_message(writer, list)
+	var newlist = "FileCnt : " + strconv.Itoa(size) + list
+	log.Println("list", newlist)
+	p.Send_message(writer, newlist)
 }
