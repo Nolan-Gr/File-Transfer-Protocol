@@ -174,7 +174,6 @@ func ListClient(line string, splitGET []string, conn net.Conn, writer *bufio.Wri
 		return
 	}
 	response = strings.TrimSpace(response)
-	log.Println(response)
 
 	if response == "Start" {
 		// Le serveur va envoyer le fichier

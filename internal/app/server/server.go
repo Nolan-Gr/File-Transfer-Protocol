@@ -185,28 +185,31 @@ func ListServer(writer *bufio.Writer, reader *bufio.Reader) {
 	var fichiers, err = os.ReadDir("Docs")
 	var list = ""
 	var size = 0
-	log.Println("fichiers :", fichiers)
-	for _, fichier := range fichiers {
-		if err := p.Send_message(writer, "Start"); err != nil {
-			log.Println("Erreur lors de l'envoi de 'Start':", err)
-			return
-		}
-		data, err := p.Receive_message(reader)
-		log.Println("data:", data)
-		if err != nil {
-			log.Println("Erreur lors de la lecture du fichier:", err)
-			return
-		} else if strings.TrimSpace(data) == "OK" {
-			log.Println("a")
-			list = " --" + list + fichier.Name()
-			size = size + 1
-			log.Println("taile :", list, size)
-		}
+	if err := p.Send_message(writer, "Start"); err != nil {
+		log.Println("Erreur lors de l'envoi de 'Start':", err)
+		return
 	}
+	log.Println(fichiers)
+	data, err := p.Receive_message(reader)
+	log.Println("data:", data)
 	if err != nil {
-		log.Fatal(err)
+		log.Println("Erreur lors de la lecture du fichier:", err)
+		return
+	} else if strings.TrimSpace(data) == "OK" {
+		for _, fichier := range fichiers {
+			fileInfo, err := fichier.Info()
+			if err != nil {
+				log.Println("Erreur lors de la lecture du fichier:", err)
+				return
+			}
+			list = list + " --" + fichier.Name() + " " + strconv.FormatInt(int64(fileInfo.Size()), 10)
+			size = size + 1
+		}
+		if err != nil {
+			log.Fatal(err)
+		}
 	}
 	var newlist = "FileCnt : " + strconv.Itoa(size) + list
-	log.Println("list", newlist)
+	log.Println(newlist)
 	p.Send_message(writer, newlist)
 }
