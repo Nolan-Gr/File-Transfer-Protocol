@@ -21,7 +21,6 @@ func Run(remote string) {
 		return
 	}
 	slog.Info("Connected to " + c.RemoteAddr().String())
-
 	// Delegue
 	RunClient(c)
 
@@ -70,16 +69,23 @@ func RunClient(conn net.Conn) {
 		line, _ := reader2.ReadString('\n')
 		line = strings.TrimSpace(line)
 
-		var splitGET = strings.Split(line, " ")
+		var split = strings.Split(line, " ")
 
 		// Le client se déconnecte
-		if strings.ToUpper(splitGET[0]) == "END" {
+		if strings.ToUpper(split[0]) == "END" {
 			break
-			// Le client envoie une commande GET
-		} else if strings.ToUpper(splitGET[0]) == "GET" {
-			Getclient(line, splitGET, conn, writer, reader)
-		} else if strings.ToUpper(splitGET[0]) == "LIST" {
-			ListClient(line, splitGET, conn, writer, reader)
+			// Le client envoie une commande connue
+		} else if strings.ToUpper(split[0]) == "GET" {
+			Getclient(line, split, conn, writer, reader)
+		} else if strings.ToUpper(split[0]) == "LIST" {
+			ListClient(writer, reader)
+		} else if strings.ToUpper(split[0]) == "TERMINATE" {
+			TerminateClient(writer, reader)
+		} else {
+			if err := p.Send_message(writer, "Unknown"); err != nil {
+				log.Println("Erreur lors de l'envoi de 'unknown':", err)
+				return
+			}
 		}
 	}
 
@@ -162,8 +168,8 @@ func Getclient(line string, splitGET []string, conn net.Conn, writer *bufio.Writ
 	}
 }
 
-func ListClient(line string, splitGET []string, conn net.Conn, writer *bufio.Writer, reader *bufio.Reader) {
-	if err := p.Send_message(writer, line); err != nil {
+func ListClient(writer *bufio.Writer, reader *bufio.Reader) {
+	if err := p.Send_message(writer, "List"); err != nil {
 		log.Println("Erreur lors de l'envoi de la commande:", err)
 		return
 	}
@@ -190,6 +196,32 @@ func ListClient(line string, splitGET []string, conn net.Conn, writer *bufio.Wri
 		var datas = strings.Split(data, "--")
 		for newdata := range datas {
 			log.Println(datas[newdata])
+		}
+	}
+
+	if err := p.Send_message(writer, "ok"); err != nil {
+		log.Println("Erreur lors de l'envoi de la commande:", err)
+		return
+	}
+}
+
+func TerminateClient(writer *bufio.Writer, reader *bufio.Reader) {
+	if err := p.Send_message(writer, "Terminate"); err != nil {
+		log.Println("Erreur lors de l'envoi de la commande:", err)
+		return
+	}
+	for {
+		rep, err := p.Receive_message(reader)
+		if err != nil {
+			log.Println("Erreur lors de la réception de la réponse:", err)
+			return
+		}
+		rep = strings.TrimSpace(rep)
+		if rep == "Terminaison finie, le serveur s'éteint" {
+			log.Println(rep)
+			return
+		} else {
+			log.Println(rep)
 		}
 	}
 }

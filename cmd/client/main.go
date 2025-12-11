@@ -15,6 +15,7 @@ func parseArgs() (remote string) {
 
 	if *dFlag {
 		slog.SetLogLoggerLevel(slog.LevelDebug)
+		slog.Debug("Set logging level to debug")
 	}
 
 	remote = *aFlag + ":" + *pFlag
