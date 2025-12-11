@@ -36,10 +36,13 @@ var clientTerminant ClientIO
 
 var listeMessage = []string{"Historique des messages : \n"}
 
+var listeValues = []string{}
+
 // Lance le serveur sur le port donné
 func RunServer(port *string, controlPort *string) {
 	compteurClient <- 0
 	compteurOperations <- 0
+	listeValues = append(listeValues, *port, *controlPort)
 
 	go runNormalServer(port) // Lancer le serveur de base en goroutine
 
@@ -77,7 +80,7 @@ func runNormalServer(port *string) {
 			slog.Error(err.Error())
 			continue
 		}
-		slog.Info("Incoming connection from " + c.RemoteAddr().String())
+		slog.Info("Incoming connection from " + c.RemoteAddr().String() + " on port " + *port)
 
 		// Lance la gestion du client en parallèle pour pas bloquer
 		go HandleClient(c)
@@ -137,7 +140,7 @@ func HandleClient(conn net.Conn) {
 	compteurClient <- taille // Remet le nouveau nombre
 
 	// Affiche qui s'est connecté et quand
-	log.Println("adresse IP du nouveau client :", conn.RemoteAddr().String(), " connecté le : ", time.Now())
+	log.Println("adresse IP du nouveau client :", conn.RemoteAddr().String(), " connecté le : ", time.Now(), " connecté sur le port ", "3333")
 
 	// Prépare la lecture et l'écriture des messages
 	reader := bufio.NewReader(conn)

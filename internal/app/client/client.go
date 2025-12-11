@@ -16,8 +16,11 @@ import (
 
 var listeMessage = []string{"Historique des messages : \n"}
 
+var Remote string
+
 func Run(remote string) {
 	log.Println(remote)
+	Remote = remote
 
 	c, err := net.Dial("tcp", remote)
 	if err != nil {
@@ -89,7 +92,7 @@ func RunClient(conn net.Conn) {
 		} else if strings.ToUpper(split[0]) == "TERMINATE" {
 			TerminateClient(writer, reader)
 		} else if strings.ToUpper(split[0]) == "MESSAGES" && slog.Default().Enabled(context.Background(), slog.LevelDebug) {
-			log.Println(listeMessage)
+			fmt.Println(strings.Trim(fmt.Sprint(listeMessage), "[]"))
 			if err := p.Send_message(writer, "messages"); err != nil {
 				log.Println("Erreur lors de l'envoi de 'end':", err)
 				continue
