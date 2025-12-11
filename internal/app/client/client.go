@@ -85,11 +85,11 @@ func RunClient(conn net.Conn) {
 		if strings.ToUpper(split[0]) == "END" {
 			break
 			// Le client envoie une commande connue
-		} else if strings.ToUpper(split[0]) == "GET" {
+		} else if strings.ToUpper(split[0]) == "GET" && Remote == "3333" {
 			Getclient(line, split, conn, writer, reader)
 		} else if strings.ToUpper(split[0]) == "LIST" {
 			ListClient(writer, reader)
-		} else if strings.ToUpper(split[0]) == "TERMINATE" {
+		} else if strings.ToUpper(split[0]) == "TERMINATE" && Remote == "3334" {
 			TerminateClient(writer, reader)
 		} else if strings.ToUpper(split[0]) == "MESSAGES" && slog.Default().Enabled(context.Background(), slog.LevelDebug) {
 			fmt.Println(strings.Trim(fmt.Sprint(listeMessage), "[]"))
