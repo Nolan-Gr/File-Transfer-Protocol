@@ -185,6 +185,13 @@ func HandleClient(conn net.Conn) {
 				incrementeCompteurOperations()
 				log.Println("Commande LIST reçue")
 				ListServer(writer, reader)
+				var fichier, err = os.ReadDir("Docs")
+				log.Println("fichier :", fichier)
+				if err != nil {
+					log.Println(err)
+				}
+				var liste = ParcourFolder(fichier, " ", 0)
+				log.Println(liste)
 				decrementeCompteurOperations()
 
 				// GET
@@ -193,6 +200,12 @@ func HandleClient(conn net.Conn) {
 				log.Println("Commande GET reçue pour:", commGet[1])
 				Getserver(commGet, writer, reader)
 				decrementeCompteurOperations()
+
+				// TERMINATE
+			} else if cleanedMsg == "Terminate" {
+				log.Println("Commande TERMINATE reçue")
+				TerminateServerP1(writer, reader)
+
 				// UNKNOWN
 			} else if cleanedMsg == "Unknown" {
 				log.Println("Commande inconnue. Veuillez entrer GET, LIST, TERMINATE ou END.")
@@ -272,6 +285,9 @@ func HandleControlClient(conn net.Conn) {
 		cleanedMsg := strings.TrimSpace(msg)
 		log.Println(cleanedMsg)
 
+		// Cas ou la requet est en plusieurs parties
+		var commGet = strings.Split(cleanedMsg, " ")
+
 		// le message start (global)
 		if !terminaisonDuServeur {
 			log.Println("cleanedMessage :", cleanedMsg)
@@ -288,6 +304,14 @@ func HandleControlClient(conn net.Conn) {
 				log.Println("Commande LIST reçue")
 				ListServer(writer, reader)
 				decrementeCompteurOperations()
+
+				// GET
+			} else if len(commGet) == 2 && commGet[0] == "GET" {
+				incrementeCompteurOperations()
+				log.Println("Commande GET reçue pour:", commGet[1])
+				Getserver(commGet, writer, reader)
+				decrementeCompteurOperations()
+
 				// TERMINATE
 			} else if cleanedMsg == "Terminate" {
 				log.Println("Commande TERMINATE reçue")
@@ -432,9 +456,32 @@ func ListServer(writer *bufio.Writer, reader *bufio.Reader) {
 	log.Println(newlist)
 	listeMessage = append(listeMessage, "sent message :", newlist, "\n")
 	p.Send_message(writer, newlist)
+
 }
 
-//func ParcourFolder()
+func ParcourFolder(fichiers []os.DirEntry, list string, size int) string {
+	for _, fichier := range fichiers {
+		fileInfo, err := fichier.Info()
+		if err != nil {
+			log.Println("Erreur lors de la lecture du fichier:", err)
+			return err.Error()
+		}
+		size = size + 1
+
+		if fichier.IsDir() {
+			log.Println(filepath.Join("Docs/", fichier.Name()))
+			var newfichiers, err = os.ReadDir(filepath.Join("Docs/", fichier.Name()))
+			if err != nil {
+				log.Fatal(err)
+			}
+			var liste = ParcourFolder(newfichiers, list, size)
+			list = list + " --" + fichier.Name() + " " + strconv.FormatInt(int64(fileInfo.Size()), 10) + " -- sous-dossier: " + " [" + liste + "]"
+		} else {
+			list = list + " --" + fichier.Name() + " " + strconv.FormatInt(int64(fileInfo.Size()), 10)
+		}
+	}
+	return list
+}
 
 func DebugServer(writer *bufio.Writer, reader *bufio.Reader) {
 	nbOperation := <-compteurOperations
@@ -513,4 +560,31 @@ func TerminateServerP2(writer *bufio.Writer, reader *bufio.Reader) {
 		log.Println("Erreur lors de l'envoi de la commande:", err)
 		return
 	}
+}
+
+func tree(writer *bufio.Writer, reader *bufio.Reader) {
+	var fichiers, err = os.ReadDir("Docs")
+	var list = ""
+	var size = 0
+	listeMessage = append(listeMessage, "sent message :", "Start \n")
+	if err := p.Send_message(writer, "Start"); err != nil {
+		log.Println("Erreur lors de l'envoi de 'Start':", err)
+		return
+	}
+	log.Println(fichiers)
+	data, err := p.Receive_message(reader)
+	log.Println("data:", data)
+	if err != nil {
+		log.Println("Erreur lors de la lecture du fichier:", err)
+		return
+	} else if strings.TrimSpace(data) == "OK" {
+		//list, size = ParcourFolder(fichiers, list, size)
+		if err != nil {
+			log.Fatal(err)
+		}
+	}
+	var newlist = "FileCnt : " + strconv.Itoa(size) + list
+	log.Println(newlist)
+	listeMessage = append(listeMessage, "sent message :", newlist, "\n")
+	p.Send_message(writer, newlist)
 }

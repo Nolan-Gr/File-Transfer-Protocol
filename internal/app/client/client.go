@@ -136,7 +136,7 @@ func RunClient(conn net.Conn) {
 
 func Getclient(line string, splitGET []string, conn net.Conn, writer *bufio.Writer, reader *bufio.Reader) {
 	listeMessage = append(listeMessage, "sent message :", line, "\n")
-	if err := p.Send_message(writer, line); err != nil {
+	if err := p.Send_message(writer,< line); err != nil {
 		log.Println("Erreur lors de l'envoi de la commande:", err)
 		return
 	}
