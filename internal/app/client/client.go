@@ -24,6 +24,10 @@ func Run(remote string) {
 
 	c, err := net.Dial("tcp", remote)
 	if err != nil {
+		if Remote == "3334" {
+			log.Println("Le port 3334 est déjà occupé")
+			return
+		}
 		slog.Error(err.Error())
 		return
 	}
@@ -91,6 +95,8 @@ func RunClient(conn net.Conn) {
 			ListClient(writer, reader)
 		} else if strings.ToUpper(split[0]) == "TERMINATE" && Remote == "3334" {
 			TerminateClient(writer, reader)
+		} else if strings.ToUpper(split[0]) == "HIDE" && Remote == "3334" {
+			HideClient(split, writer, reader)
 		} else if strings.ToUpper(split[0]) == "MESSAGES" && slog.Default().Enabled(context.Background(), slog.LevelDebug) {
 			fmt.Println(strings.Trim(fmt.Sprint(listeMessage), "[]"))
 			if err := p.Send_message(writer, "messages"); err != nil {
@@ -190,6 +196,10 @@ func Getclient(line string, splitGET []string, conn net.Conn, writer *bufio.Writ
 	} else {
 		log.Println("Réponse inattendue du serveur:", response)
 	}
+}
+
+func HideClient(split []string, writer *bufio.Writer, reader *bufio.Reader) {
+	context.TODO()
 }
 
 func ListClient(writer *bufio.Writer, reader *bufio.Reader) {

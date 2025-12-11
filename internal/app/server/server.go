@@ -167,7 +167,7 @@ func HandleClient(conn net.Conn) {
 		cleanedMsg := strings.TrimSpace(msg)
 		log.Println(cleanedMsg)
 
-		// Cas ou la requet est en plusieurs parties
+		// Cas ou la requete est en plusieurs parties
 		var commGet = strings.Split(cleanedMsg, " ")
 
 		// le message start (global)
@@ -272,6 +272,9 @@ func HandleControlClient(conn net.Conn) {
 		cleanedMsg := strings.TrimSpace(msg)
 		log.Println(cleanedMsg)
 
+		// Cas ou la requete est en plusieurs parties
+		var commHideReveal = strings.Split(cleanedMsg, " ")
+
 		// le message start (global)
 		if !terminaisonDuServeur {
 			log.Println("cleanedMessage :", cleanedMsg)
@@ -288,6 +291,7 @@ func HandleControlClient(conn net.Conn) {
 				log.Println("Commande LIST reçue")
 				ListServer(writer, reader)
 				decrementeCompteurOperations()
+
 				// TERMINATE
 			} else if cleanedMsg == "Terminate" {
 				log.Println("Commande TERMINATE reçue")
@@ -298,6 +302,13 @@ func HandleControlClient(conn net.Conn) {
 				log.Println("Commande inconnue. Veuillez entrer GET, LIST, TERMINATE ou END.")
 				continue
 
+				// HIDE
+			} else if len(commHideReveal) == 2 && commHideReveal[0] == "HIDE" {
+				incrementeCompteurOperations()
+				log.Println("Commande HIDE reçue")
+				HIDE(commHideReveal, writer, reader)
+				decrementeCompteurOperations()
+
 				//END ou message inattendu
 			} else if cleanedMsg == "end" {
 				listeMessage = append(listeMessage, "sent message :", "ok \n")
@@ -305,8 +316,10 @@ func HandleControlClient(conn net.Conn) {
 					log.Println("Erreur lors de l'envoi de 'ok' après 'end':", err)
 				}
 				return
+
 			} else if cleanedMsg == "messages" {
 				log.Println(listeMessage)
+
 			} else {
 				// Message inconnu : log, informer le client et continuer la connexion
 				log.Println("Message inattendu du client:", cleanedMsg)
@@ -387,7 +400,7 @@ func Getserver(commGet []string, writer *bufio.Writer, reader *bufio.Reader) {
 	}
 	// gestion du FileUnknown
 	if !found {
-		log.Println("Fichier non trouvé:", commGet[1]) // ← Log
+		log.Println("Fichier non trouvé:", commGet[1])
 		listeMessage = append(listeMessage, "sent message :", "FileUnknown \n")
 		if err := p.Send_message(writer, "FileUnknown"); err != nil {
 			log.Println("Erreur lors de l'envoi de 'FileUnknown':", err)
@@ -397,6 +410,46 @@ func Getserver(commGet []string, writer *bufio.Writer, reader *bufio.Reader) {
 	// ok du client
 	var response, _ = p.Receive_message(reader)
 	log.Println("Réponse du client:", response)
+}
+
+func HIDE(commHideReveal []string, writer *bufio.Writer, reader *bufio.Reader) {
+	var fichiers, err = os.ReadDir("Docs")
+	if err != nil {
+		log.Fatal(err)
+	}
+	var found = false
+
+	for _, fichier := range fichiers {
+		if commHideReveal[1] == fichier.Name() {
+			found = true
+			log.Println("Fichier trouvé:", fichier.Name())
+			var oldPath = filepath.Join("Docs", fichier.Name())
+			var newPath = filepath.Join("Docs", "."+fichier.Name())
+
+			err := os.Rename(oldPath, newPath)
+			if err != nil {
+				log.Println("Ne peut pas rename le fichier :", err)
+				return
+			}
+			log.Println("Le fichier a bien été HIDE")
+
+			// envoie du Ok
+			listeMessage = append(listeMessage, "sent message :", "Start \n")
+			if err := p.Send_message(writer, "Start"); err != nil {
+				log.Println("Erreur lors de l'envoi de 'Start':", err)
+				return
+			}
+		}
+	}
+	// gestion du FileUnknown
+	if !found {
+		log.Println("Fichier non trouvé:", commHideReveal[1])
+		listeMessage = append(listeMessage, "sent message :", "FileUnknown \n")
+		if err := p.Send_message(writer, "FileUnknown"); err != nil {
+			log.Println("Erreur lors de l'envoi de 'FileUnknown':", err)
+			return
+		}
+	}
 }
 
 func ListServer(writer *bufio.Writer, reader *bufio.Reader) {
