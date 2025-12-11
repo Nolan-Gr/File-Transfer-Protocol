@@ -238,15 +238,113 @@ func HandleClient(conn net.Conn) {
 }
 
 func HandleControlClient(conn net.Conn) {
-	defer conn.Close()
+	// À la fin de la fonction, on déconnecte le client
+	defer ClientLogOut(conn)
 
-	//reader := bufio.NewReader(conn)
+	taille := <-compteurClient // Récupère le nombre actuel
+	taille++                   // Ajoute 1
+	log.Println("nombre de client : ", taille)
+	compteurClient <- taille // Remet le nouveau nombre
+
+	// Affiche qui s'est connecté et quand
+	log.Println("adresse IP du nouveau client :", conn.RemoteAddr().String(), " connecté le : ", time.Now())
+
+	// Prépare la lecture et l'écriture des messages
+	reader := bufio.NewReader(conn)
 	writer := bufio.NewWriter(conn)
 
-	// Envoyer "hello" comme pour un client normal
+	// Envoie "hello" au client pour commencer
+	listeMessage = append(listeMessage, "sent message :", "hello \n")
 	if err := p.Send_message(writer, "hello"); err != nil {
-		log.Println("Erreur:", err)
+		log.Println("Erreur lors de l'envoi de 'hello':", err)
 		return
+	}
+
+	// Boucle qui attend les messages du client
+	for {
+		// Lit le message du client
+		msg, err := p.Receive_message(reader)
+		if err != nil {
+			// Si erreur = client déco
+			log.Println("Client déconnecté ou erreur de lecture:", err)
+			return
+		}
+
+		// Enlève les espaces dans le message
+		cleanedMsg := strings.TrimSpace(msg)
+		log.Println(cleanedMsg)
+
+		// Cas ou la requet est en plusieurs parties
+		var commGet = strings.Split(cleanedMsg, " ")
+
+		// le message start (global)
+		if !terminaisonDuServeur {
+			log.Println("cleanedMessage :", cleanedMsg)
+			if cleanedMsg == "start" {
+				listeMessage = append(listeMessage, "sent message :", "ok \n")
+				if err := p.Send_message(writer, "ok"); err != nil {
+					log.Println("Erreur lors de l'envoi de 'ok' après 'start':", err)
+					return
+				}
+
+				// LIST
+			} else if cleanedMsg == "List" {
+				incrementeCompteurOperations()
+				log.Println("Commande LIST reçue")
+				ListServer(writer, reader)
+				decrementeCompteurOperations()
+
+				// GET
+			} else if len(commGet) == 2 && commGet[0] == "GET" {
+				incrementeCompteurOperations()
+				log.Println("Commande GET reçue pour:", commGet[1])
+				Getserver(commGet, writer, reader)
+				decrementeCompteurOperations()
+
+				// TERMINATE
+			} else if cleanedMsg == "Terminate" {
+				log.Println("Commande TERMINATE reçue")
+				TerminateServerP1(writer, reader)
+
+				// UNKNOWN
+			} else if cleanedMsg == "Unknown" {
+				log.Println("Commande inconnue. Veuillez entrer GET, LIST, TERMINATE ou END.")
+				continue
+
+				//END ou message inattendu
+			} else if cleanedMsg == "end" {
+				listeMessage = append(listeMessage, "sent message :", "ok \n")
+				if err := p.Send_message(writer, "ok"); err != nil {
+					log.Println("Erreur lors de l'envoi de 'ok' après 'end':", err)
+				}
+				return
+			} else if cleanedMsg == "messages" {
+				log.Println(listeMessage)
+			} else {
+				// Message inconnu : log, informer le client et continuer la connexion
+				log.Println("Message inattendu du client:", cleanedMsg)
+				continue
+			}
+		} else {
+			listeMessage = append(listeMessage, "sent message :", "ok \n")
+			// Si le serveur est en terminaison, on informe le client et on ferme la connexion
+			if err := p.Send_message(writer, "Server terminating, connection closing."); err != nil {
+				log.Println("Erreur lors de l'envoi du message de terminaison:", err)
+			}
+			continue
+		}
+
+		//msg, err = p.Receive_message(reader)
+		log.Println("message1")
+		//if err != nil {
+		//	log.Println("Erreur lors de la réception de la réponse:", err)
+		//	return
+		//}
+		// pour le mode debug
+		if slog.Default().Enabled(context.Background(), slog.LevelDebug) {
+			log.Println("debug ")
+			DebugServer(writer, reader)
+		}
 	}
 }
 
