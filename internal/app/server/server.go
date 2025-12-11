@@ -193,12 +193,6 @@ func HandleClient(conn net.Conn) {
 				log.Println("Commande GET reçue pour:", commGet[1])
 				Getserver(commGet, writer, reader)
 				decrementeCompteurOperations()
-
-				// TERMINATE
-			} else if cleanedMsg == "Terminate" {
-				log.Println("Commande TERMINATE reçue")
-				TerminateServerP1(writer, reader)
-
 				// UNKNOWN
 			} else if cleanedMsg == "Unknown" {
 				log.Println("Commande inconnue. Veuillez entrer GET, LIST, TERMINATE ou END.")
@@ -278,9 +272,6 @@ func HandleControlClient(conn net.Conn) {
 		cleanedMsg := strings.TrimSpace(msg)
 		log.Println(cleanedMsg)
 
-		// Cas ou la requet est en plusieurs parties
-		var commGet = strings.Split(cleanedMsg, " ")
-
 		// le message start (global)
 		if !terminaisonDuServeur {
 			log.Println("cleanedMessage :", cleanedMsg)
@@ -297,14 +288,6 @@ func HandleControlClient(conn net.Conn) {
 				log.Println("Commande LIST reçue")
 				ListServer(writer, reader)
 				decrementeCompteurOperations()
-
-				// GET
-			} else if len(commGet) == 2 && commGet[0] == "GET" {
-				incrementeCompteurOperations()
-				log.Println("Commande GET reçue pour:", commGet[1])
-				Getserver(commGet, writer, reader)
-				decrementeCompteurOperations()
-
 				// TERMINATE
 			} else if cleanedMsg == "Terminate" {
 				log.Println("Commande TERMINATE reçue")
