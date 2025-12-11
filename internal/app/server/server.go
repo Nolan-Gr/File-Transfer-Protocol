@@ -245,14 +245,14 @@ func HandleClient(conn net.Conn) {
 					return
 				}
 
-			} else if cleanedMsg == "List" {
+			} else if len(commGet) == 2 && commGet[0] == "List" {
 				nbOp := incrementerOperations()
 				log.Println("Commande LIST reçue, opérations en cours:", nbOp)
-				ListServer(writer, reader)
+				ListServer(commGet, writer, reader)
 				nbOp = decrementerOperations()
 				log.Println("Commande LIST terminée, opérations restantes:", nbOp)
 
-			} else if len(commGet) == 2 && commGet[0] == "GET" {
+			} else if len(commGet) == 3 && commGet[0] == "GET" {
 				nbOp := incrementerOperations()
 				log.Println("Commande GET reçue pour:", commGet[1], ", opérations en cours:", nbOp)
 				Getserver(commGet, writer, reader)
@@ -341,10 +341,10 @@ func HandleControlClient(conn net.Conn) {
 					return
 				}
 
-			} else if cleanedMsg == "List" {
+			} else if len(commHideReveal) == 2 && commHideReveal[0] == "List" {
 				nbOp := incrementerOperations()
 				log.Println("Commande LIST reçue, opérations en cours:", nbOp)
-				ListServer(writer, reader)
+				ListServer(commHideReveal, writer, reader)
 				nbOp = decrementerOperations()
 				log.Println("Commande LIST terminée, opérations restantes:", nbOp)
 
@@ -375,12 +375,19 @@ func HandleControlClient(conn net.Conn) {
 					return
 				}
 
-			} else if len(commHideReveal) == 2 && commHideReveal[0] == "HIDE" {
+			} else if len(commHideReveal) == 3 && commHideReveal[0] == "HIDE" {
 				nbOp := incrementerOperations()
 				log.Println("Commande HIDE reçue, opérations en cours:", nbOp)
 				HIDE(commHideReveal, writer, reader)
 				nbOp = decrementerOperations()
 				log.Println("Commande HIDE terminée, opérations restantes:", nbOp)
+
+			} else if len(commHideReveal) == 3 && commHideReveal[0] == "REVEAL" {
+				nbOp := incrementerOperations()
+				log.Println("Commande REVEAL reçue, opérations en cours:", nbOp)
+				REVEAL(commHideReveal, writer, reader)
+				nbOp = decrementerOperations()
+				log.Println("Commande REVEAL terminée, opérations restantes:", nbOp)
 
 			} else if cleanedMsg == "end" {
 				addToListeMessage("sent message :", "ok \n")
@@ -427,7 +434,7 @@ func ClientLogOut(conn net.Conn) {
 }
 
 func Getserver(commGet []string, writer *bufio.Writer, reader *bufio.Reader) {
-	var fichiers, err = os.ReadDir("Docs")
+	var fichiers, err = os.ReadDir(commGet[2])
 	if err != nil {
 		log.Println("Erreur lecture dossier Docs:", err)
 		return
@@ -438,7 +445,7 @@ func Getserver(commGet []string, writer *bufio.Writer, reader *bufio.Reader) {
 		if commGet[1] == fichier.Name() {
 			found = true
 			log.Println("Fichier trouvé:", fichier.Name())
-			var path = filepath.Join("Docs", fichier.Name())
+			var path = filepath.Join(commGet[2], fichier.Name())
 
 			addToListeMessage("sent message :", "Start \n")
 			if err := p.Send_message(writer, "Start"); err != nil {
@@ -471,9 +478,9 @@ func Getserver(commGet []string, writer *bufio.Writer, reader *bufio.Reader) {
 }
 
 func HIDE(commHideReveal []string, writer *bufio.Writer, reader *bufio.Reader) {
-	var fichiers, err = os.ReadDir("Docs")
+	var fichiers, err = os.ReadDir(commHideReveal[2])
 	if err != nil {
-		log.Println("Erreur lecture dossier Docs:", err)
+		log.Println("Erreur lecture dossier:", err)
 		return
 	}
 	var found = false
@@ -482,8 +489,8 @@ func HIDE(commHideReveal []string, writer *bufio.Writer, reader *bufio.Reader) {
 		if commHideReveal[1] == fichier.Name() {
 			found = true
 			log.Println("Fichier trouvé:", fichier.Name())
-			var oldPath = filepath.Join("Docs", fichier.Name())
-			var newPath = filepath.Join("Docs", "."+fichier.Name())
+			var oldPath = filepath.Join(commHideReveal[2], fichier.Name())
+			var newPath = filepath.Join(commHideReveal[2], "."+fichier.Name())
 
 			err := os.Rename(oldPath, newPath)
 			if err != nil {
@@ -510,8 +517,48 @@ func HIDE(commHideReveal []string, writer *bufio.Writer, reader *bufio.Reader) {
 	}
 }
 
-func ListServer(writer *bufio.Writer, reader *bufio.Reader) {
-	var fichiers, err = os.ReadDir("Docs")
+func REVEAL(commHideReveal []string, writer *bufio.Writer, reader *bufio.Reader) {
+	var fichiers, err = os.ReadDir(commHideReveal[2])
+	if err != nil {
+		log.Println("Erreur lecture dossier :", err)
+		return
+	}
+	var found = false
+
+	for _, fichier := range fichiers {
+		if commHideReveal[1] == fichier.Name() {
+			found = true
+			log.Println("Fichier trouvé:", fichier.Name())
+			var oldPath = filepath.Join(commHideReveal[2], fichier.Name())
+			var newPath = filepath.Join(commHideReveal[2], strings.TrimPrefix(fichier.Name(), "."))
+
+			err := os.Rename(oldPath, newPath)
+			if err != nil {
+				log.Println("Ne peut pas rename le fichier :", err)
+				return
+			}
+			log.Println("Le fichier a bien été REVEAL")
+
+			addToListeMessage("sent message :", "OK \n")
+			if err := p.Send_message(writer, "OK"); err != nil {
+				log.Println("Erreur lors de l'envoi de 'OK':", err)
+				return
+			}
+			break
+		}
+	}
+	if !found {
+		log.Println("Fichier non trouvé:", commHideReveal[1])
+		addToListeMessage("sent message :", "FileUnknown \n")
+		if err := p.Send_message(writer, "FileUnknown"); err != nil {
+			log.Println("Erreur lors de l'envoi de 'FileUnknown':", err)
+			return
+		}
+	}
+}
+
+func ListServer(commHideReveal []string, writer *bufio.Writer, reader *bufio.Reader) {
+	var fichiers, err = os.ReadDir(commHideReveal[1])
 	if err != nil {
 		log.Println("Erreur lecture dossier Docs:", err)
 		return
@@ -630,4 +677,31 @@ func TerminateServer() {
 	// Forcer la sortie du programme après un court délai
 	time.Sleep(500 * time.Millisecond)
 	os.Exit(0)
+}
+
+func tree(writer *bufio.Writer, reader *bufio.Reader) {
+	var fichiers, err = os.ReadDir("Docs")
+	var list = ""
+	var size = 0
+	listeMessage = append(listeMessage, "sent message :", "Start \n")
+	if err := p.Send_message(writer, "Start"); err != nil {
+		log.Println("Erreur lors de l'envoi de 'Start':", err)
+		return
+	}
+	log.Println(fichiers)
+	data, err := p.Receive_message(reader)
+	log.Println("data:", data)
+	if err != nil {
+		log.Println("Erreur lors de la lecture du fichier:", err)
+		return
+	} else if strings.TrimSpace(data) == "OK" {
+		//list, size = ParcourFolder(fichiers, list, size)
+		if err != nil {
+			log.Fatal(err)
+		}
+	}
+	var newlist = "FileCnt : " + strconv.Itoa(size) + list
+	log.Println(newlist)
+	listeMessage = append(listeMessage, "sent message :", newlist, "\n")
+	p.Send_message(writer, newlist)
 }

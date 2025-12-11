@@ -44,6 +44,7 @@ func RunClient(conn net.Conn) {
 
 	reader := bufio.NewReader(conn)
 	writer := bufio.NewWriter(conn)
+	posActuelle := "Docs"
 
 	// Étape 1 : Attendre le message "hello" du serveur
 	msg, err := p.Receive_message(reader)
@@ -95,10 +96,12 @@ func RunClient(conn net.Conn) {
 
 			// Commandes disponibles sur le port normal (3333)
 		} else if command == "GET" && !isControlPort && len(split) == 2 {
-			Getclient(line, split, conn, writer, reader)
+			split = append(split, posActuelle)
+			Getclient(line, split, writer, reader)
 
 		} else if command == "LIST" {
-			ListClient(writer, reader)
+			split = append(split, posActuelle)
+			ListClient(split, writer, reader)
 
 		} else if command == "HELP" {
 			listeMessage = append(listeMessage, "sent message :", "Help \n")
@@ -121,9 +124,11 @@ func RunClient(conn net.Conn) {
 			return // Fermer la connexion après terminate
 
 		} else if command == "HIDE" && isControlPort && len(split) == 2 {
+			split = append(split, posActuelle)
 			HideClient(split, writer, reader)
 
 		} else if command == "REVEAL" && isControlPort && len(split) == 2 {
+			split = append(split, posActuelle)
 			RevealClient(split, writer, reader)
 
 		} else if command == "MESSAGES" && slog.Default().Enabled(context.Background(), slog.LevelDebug) {
@@ -175,12 +180,13 @@ func RunClient(conn net.Conn) {
 	log.Println("Protocole terminé avec succès. Déconnexion du client.")
 }
 
-func Getclient(line string, splitGET []string, conn net.Conn, writer *bufio.Writer, reader *bufio.Reader) {
+func Getclient(line string, splitGET []string, writer *bufio.Writer, reader *bufio.Reader) {
 	listeMessage = append(listeMessage, "sent message :", line, "\n")
-	if err := p.Send_message(writer, line); err != nil {
+	if err := p.Send_message(writer, splitGET[0]+" "+splitGET[1]+" "+splitGET[2]); err != nil {
 		log.Println("Erreur lors de l'envoi de la commande:", err)
 		return
 	}
+
 	// Attend la réponse du serveur
 	var response, err = p.Receive_message(reader)
 	listeMessage = append(listeMessage, "received message :", response)
@@ -234,7 +240,7 @@ func Getclient(line string, splitGET []string, conn net.Conn, writer *bufio.Writ
 }
 
 func HideClient(split []string, writer *bufio.Writer, reader *bufio.Reader) {
-	command := "HIDE " + split[1]
+	command := "HIDE " + split[1] + " " + split[2]
 	listeMessage = append(listeMessage, "sent message :", command, "\n")
 	if err := p.Send_message(writer, command); err != nil {
 		log.Println("Erreur lors de l'envoi de la commande:", err)
@@ -260,7 +266,7 @@ func HideClient(split []string, writer *bufio.Writer, reader *bufio.Reader) {
 }
 
 func RevealClient(split []string, writer *bufio.Writer, reader *bufio.Reader) {
-	command := "REVEAL " + split[1]
+	command := "REVEAL " + split[1] + " " + split[2]
 	listeMessage = append(listeMessage, "sent message :", command, "\n")
 	if err := p.Send_message(writer, command); err != nil {
 		log.Println("Erreur lors de l'envoi de la commande:", err)
@@ -285,9 +291,9 @@ func RevealClient(split []string, writer *bufio.Writer, reader *bufio.Reader) {
 	}
 }
 
-func ListClient(writer *bufio.Writer, reader *bufio.Reader) {
+func ListClient(split []string, writer *bufio.Writer, reader *bufio.Reader) {
 	listeMessage = append(listeMessage, "sent message :", "List \n")
-	if err := p.Send_message(writer, "List"); err != nil {
+	if err := p.Send_message(writer, "List "+split[1]); err != nil {
 		log.Println("Erreur lors de l'envoi de la commande:", err)
 		return
 	}
