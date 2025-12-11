@@ -14,7 +14,7 @@ import (
 	p "gitlab.univ-nantes.fr/iutna.info2.r305/proj/internal/pkg/proto"
 )
 
-var listeMessage = []string{"Historique des messgaes : \n"}
+var listeMessage = []string{"Historique des messages : \n"}
 
 func Run(remote string) {
 	log.Println(remote)
