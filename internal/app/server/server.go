@@ -434,6 +434,8 @@ func ListServer(writer *bufio.Writer, reader *bufio.Reader) {
 	p.Send_message(writer, newlist)
 }
 
+//func ParcourFolder()
+
 func DebugServer(writer *bufio.Writer, reader *bufio.Reader) {
 	nbOperation := <-compteurOperations
 	nbClient := <-compteurClient
