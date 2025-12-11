@@ -24,8 +24,8 @@ func Run(remote string) {
 
 	c, err := net.Dial("tcp", remote)
 	if err != nil {
-		if Remote == "3334" {
-			log.Println("Le port 3334 est déjà occupé")
+		if strings.Contains(remote, "3334") {
+			log.Println("Le port 3334 est déjà occupé ou le serveur de contrôle n'est pas accessible")
 			return
 		}
 		slog.Error(err.Error())
@@ -84,31 +84,67 @@ func RunClient(conn net.Conn) {
 		line = strings.TrimSpace(line)
 
 		var split = strings.Split(line, " ")
+		command := strings.ToUpper(split[0])
+
+		// Déterminer si c'est le port de contrôle
+		isControlPort := strings.Contains(Remote, "3334")
 
 		// Le client se déconnecte
-		if strings.ToUpper(split[0]) == "END" {
+		if command == "END" {
 			break
-			// Le client envoie une commande connue
-		} else if strings.ToUpper(split[0]) == "GET" && Remote == "3333" {
+
+		// Commandes disponibles sur le port normal (3333)
+		} else if command == "GET" && !isControlPort && len(split) == 2 {
 			Getclient(line, split, conn, writer, reader)
-		} else if strings.ToUpper(split[0]) == "LIST" {
+
+		} else if command == "LIST" {
 			ListClient(writer, reader)
-		} else if strings.ToUpper(split[0]) == "TERMINATE" && Remote == "3334" {
-			TerminateClient(writer, reader)
-		} else if strings.ToUpper(split[0]) == "HIDE" && Remote == "3334" {
-			HideClient(split, writer, reader)
-		} else if strings.ToUpper(split[0]) == "MESSAGES" && slog.Default().Enabled(context.Background(), slog.LevelDebug) {
-			fmt.Println(strings.Trim(fmt.Sprint(listeMessage), "[]"))
-			if err := p.Send_message(writer, "messages"); err != nil {
-				log.Println("Erreur lors de l'envoi de 'end':", err)
-				continue
+		
+		} else if command == "HELP" {
+			listeMessage = append(listeMessage, "sent message :", "Help \n")
+			if err := p.Send_message(writer, "Help"); err != nil {
+				log.Println("Erreur lors de l'envoi de 'help':", err)
+				return
 			}
+
+			msg, err = p.Receive_message(reader)
+			listeMessage = append(listeMessage, "received message :", msg)
+			if err != nil {
+				log.Println("Erreur lors de la réception de la réponse ou déconnexion:", err)
+				return
+			}
+			log.Println(msg)
+		
+		// Commandes disponibles uniquement sur le port de contrôle (3334)
+		} else if command == "TERMINATE" && isControlPort {
+			TerminateClient(writer, reader)
+			return // Fermer la connexion après terminate
+
+		} else if command == "HIDE" && isControlPort && len(split) == 2 {
+			HideClient(split, writer, reader)
+
+		} else if command == "REVEAL" && isControlPort && len(split) == 2 {
+			RevealClient(split, writer, reader)
+
+		} else if command == "MESSAGES" && slog.Default().Enabled(context.Background(), slog.LevelDebug) {
+			fmt.Println(strings.Trim(fmt.Sprint(listeMessage), "[]"))
+			// Ne pas envoyer de message au serveur pour cette commande locale
+
 		} else {
+			// Commande inconnue ou invalide
 			listeMessage = append(listeMessage, "sent message :", "Unknown \n")
 			if err := p.Send_message(writer, "Unknown"); err != nil {
 				log.Println("Erreur lors de l'envoi de 'unknown':", err)
-				continue
+				return
 			}
+
+			msg, err = p.Receive_message(reader)
+			listeMessage = append(listeMessage, "received message :", msg)
+			if err != nil {
+				log.Println("Erreur lors de la réception de la réponse ou déconnexion:", err)
+				return
+			}
+			log.Println(msg)
 		}
 	}
 
@@ -137,7 +173,6 @@ func RunClient(conn net.Conn) {
 	}
 
 	log.Println("Protocole terminé avec succès. Déconnexion du client.")
-	// Le defer conn.Close() s'occupera de la fermeture
 }
 
 func Getclient(line string, splitGET []string, conn net.Conn, writer *bufio.Writer, reader *bufio.Reader) {
@@ -178,7 +213,7 @@ func Getclient(line string, splitGET []string, conn net.Conn, writer *bufio.Writ
 		}
 
 		// Sauvegarde le fichier localement avec le même nom
-		err = os.WriteFile(splitGET[1], []byte(data), 770)
+		err = os.WriteFile(splitGET[1], []byte(data), 0770)
 		if err != nil {
 			log.Println("Erreur lors de la sauvegarde du fichier:", err)
 			return
@@ -199,7 +234,55 @@ func Getclient(line string, splitGET []string, conn net.Conn, writer *bufio.Writ
 }
 
 func HideClient(split []string, writer *bufio.Writer, reader *bufio.Reader) {
-	context.TODO()
+	command := "HIDE " + split[1]
+	listeMessage = append(listeMessage, "sent message :", command, "\n")
+	if err := p.Send_message(writer, command); err != nil {
+		log.Println("Erreur lors de l'envoi de la commande:", err)
+		return
+	}
+
+	// Attendre la réponse du serveur
+	response, err := p.Receive_message(reader)
+	listeMessage = append(listeMessage, "received message :", response)
+	if err != nil {
+		log.Println("Erreur lors de la réception de la réponse:", err)
+		return
+	}
+	response = strings.TrimSpace(response)
+
+	if response == "FileUnknown" {
+		log.Println("Fichier introuvable sur le serveur")
+	} else if response == "OK" {
+		log.Printf("Fichier '%s' caché avec succès\n", split[1])
+	} else {
+		log.Println("Réponse inattendue du serveur:", response)
+	}
+}
+
+func RevealClient(split []string, writer *bufio.Writer, reader *bufio.Reader) {
+	command := "REVEAL " + split[1]
+	listeMessage = append(listeMessage, "sent message :", command, "\n")
+	if err := p.Send_message(writer, command); err != nil {
+		log.Println("Erreur lors de l'envoi de la commande:", err)
+		return
+	}
+
+	// Attendre la réponse du serveur
+	response, err := p.Receive_message(reader)
+	listeMessage = append(listeMessage, "received message :", response)
+	if err != nil {
+		log.Println("Erreur lors de la réception de la réponse:", err)
+		return
+	}
+	response = strings.TrimSpace(response)
+
+	if response == "FileUnknown" {
+		log.Println("Fichier introuvable (ou pas caché) sur le serveur")
+	} else if response == "OK" {
+		log.Printf("Fichier '%s' révélé avec succès\n", split[1])
+	} else {
+		log.Println("Réponse inattendue du serveur:", response)
+	}
 }
 
 func ListClient(writer *bufio.Writer, reader *bufio.Reader) {
@@ -218,8 +301,7 @@ func ListClient(writer *bufio.Writer, reader *bufio.Reader) {
 	response = strings.TrimSpace(response)
 
 	if response == "Start" {
-		// Le serveur va envoyer le fichier
-		// Lire tout le contenu
+		// Le serveur va envoyer la liste
 		listeMessage = append(listeMessage, "sent message :", "OK \n")
 		if err := p.Send_message(writer, "OK"); err != nil {
 			log.Println("Erreur lors de l'envoi de 'OK':", err)
@@ -228,13 +310,17 @@ func ListClient(writer *bufio.Writer, reader *bufio.Reader) {
 		data, err := p.Receive_message(reader)
 		listeMessage = append(listeMessage, "received message :", data)
 		if err != nil {
-			log.Println("Erreur lors de la lecture du fichier:", err)
+			log.Println("Erreur lors de la lecture de la liste:", err)
 			return
 		}
 		var datas = strings.Split(data, "--")
-		for newdata := range datas {
-			log.Println(datas[newdata])
+		log.Println("\n=== Liste des fichiers disponibles ===")
+		for _, item := range datas {
+			if strings.TrimSpace(item) != "" {
+				log.Println(strings.TrimSpace(item))
+			}
 		}
+		log.Println("=====================================")
 	}
 
 	listeMessage = append(listeMessage, "sent message :", "ok \n")
@@ -250,17 +336,30 @@ func TerminateClient(writer *bufio.Writer, reader *bufio.Reader) {
 		log.Println("Erreur lors de l'envoi de la commande:", err)
 		return
 	}
+	
+	log.Println("Commande TERMINATE envoyée, attente de la réponse du serveur...")
+	
 	for {
 		rep, err := p.Receive_message(reader)
-		listeMessage = append(listeMessage, "received message :", rep)
 		if err != nil {
+			// La connexion peut être fermée après le message final
+			if err == io.EOF {
+				log.Println("Serveur déconnecté")
+				return
+			}
 			log.Println("Erreur lors de la réception de la réponse:", err)
 			return
 		}
+		
+		listeMessage = append(listeMessage, "received message :", rep)
 		rep = strings.TrimSpace(rep)
+		
 		if rep == "Terminaison finie, le serveur s'éteint" {
 			log.Println(rep)
+			log.Println("Le serveur s'est arrêté avec succès")
 			return
+		} else if strings.Contains(rep, "opération") {
+			log.Println(rep)
 		} else {
 			log.Println(rep)
 		}

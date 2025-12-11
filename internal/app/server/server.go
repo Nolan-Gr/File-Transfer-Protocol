@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	p "gitlab.univ-nantes.fr/iutna.info2.r305/proj/internal/pkg/proto"
@@ -18,39 +19,116 @@ import (
 
 var connectiontime time.Time
 
-// Canal qui sert de compteur pour savoir combien de clients sont connectés
-var compteurClient = make(chan int, 1)
+// Utilisation de sync.Mutex pour les compteurs au lieu de canaux
+var (
+	compteurClient     int
+	compteurOperations int
+	compteurMutex      sync.Mutex
+)
 
-// Canal qui sert de compteur pour savoir combien d'operations sont en cours
-var compteurOperations = make(chan int, 1)
+// Canal pour signaler la terminaison (utilisé avec sync.Once pour éviter double close)
+var shutdownChan = make(chan struct{})
+var shutdownOnce sync.Once
 
 // Boolean pour la terminaison du serveur
 var terminaisonDuServeur bool = false
+var terminaisonMutex sync.RWMutex
 
 type ClientIO struct {
 	writer *bufio.Writer
 	reader *bufio.Reader
 }
 
-var clientTerminant ClientIO
+var (
+	clientTerminant      ClientIO
+	clientTerminantMutex sync.Mutex
+)
 
-var listeMessage = []string{"Historique des messages : \n"}
+var (
+	listeMessage      = []string{"Historique des messages : \n"}
+	listeMessageMutex sync.Mutex
+)
 
 var listeValues = []string{}
 
+// WaitGroup pour attendre la fermeture des serveurs
+var serverWg sync.WaitGroup
+
+// Fonctions helper pour manipuler les compteurs de façon thread-safe
+func incrementerClient() int {
+	compteurMutex.Lock()
+	defer compteurMutex.Unlock()
+	compteurClient++
+	return compteurClient
+}
+
+func decrementerClient() int {
+	compteurMutex.Lock()
+	defer compteurMutex.Unlock()
+	compteurClient--
+	return compteurClient
+}
+
+func incrementerOperations() int {
+	compteurMutex.Lock()
+	defer compteurMutex.Unlock()
+	compteurOperations++
+	return compteurOperations
+}
+
+func decrementerOperations() int {
+	compteurMutex.Lock()
+	defer compteurMutex.Unlock()
+	compteurOperations--
+	return compteurOperations
+}
+
+func getCompteurOperations() int {
+	compteurMutex.Lock()
+	defer compteurMutex.Unlock()
+	return compteurOperations
+}
+
+func getCompteurClient() int {
+	compteurMutex.Lock()
+	defer compteurMutex.Unlock()
+	return compteurClient
+}
+
+func isServerShuttingDown() bool {
+	terminaisonMutex.RLock()
+	defer terminaisonMutex.RUnlock()
+	return terminaisonDuServeur
+}
+
+func setServerShuttingDown() {
+	terminaisonMutex.Lock()
+	defer terminaisonMutex.Unlock()
+	terminaisonDuServeur = true
+}
+
+func addToListeMessage(messages ...string) {
+	listeMessageMutex.Lock()
+	defer listeMessageMutex.Unlock()
+	listeMessage = append(listeMessage, messages...)
+}
+
 // Lance le serveur sur le port donné
 func RunServer(port *string, controlPort *string) {
-	compteurClient <- 0
-	compteurOperations <- 0
 	listeValues = append(listeValues, *port, *controlPort)
 
-	go runNormalServer(port) // Lancer le serveur de base en goroutine
+	serverWg.Add(2)
+	go runNormalServer(port)
+	go runControlServer(controlPort)
 
-	runControlServer(controlPort) // Lance le serveur contrôle pour avoir qu'une seule connexion à la fois
+	// Attendre que les deux serveurs se terminent
+	serverWg.Wait()
+	log.Println("Tous les serveurs sont arrêtés")
 }
 
 func runNormalServer(port *string) {
-	// Ouvre le serveur sur le port
+	defer serverWg.Done()
+
 	l, err := net.Listen("tcp", ":"+*port)
 	if err != nil {
 		slog.Error(err.Error())
@@ -58,7 +136,6 @@ func runNormalServer(port *string) {
 	}
 	connectiontime = time.Now()
 
-	// Ferme le serveur proprement quand la fonction se termine
 	defer func() {
 		err := l.Close()
 		if err != nil {
@@ -68,37 +145,37 @@ func runNormalServer(port *string) {
 	}()
 	slog.Debug("Now listening on port " + *port)
 
-	// Boucle infinie qui attend les connexions
+	// Goroutine pour fermer le listener quand shutdownChan est fermé
+	go func() {
+		<-shutdownChan
+		l.Close()
+	}()
+
 	for {
-		if terminaisonDuServeur {
-			slog.Info("Server is terminating, no longer accepting new connections.")
-			break
-		}
-		// Attend qu'un client se connecte
 		c, err := l.Accept()
 		if err != nil {
+			// Vérifier si c'est une erreur due à la fermeture du listener
+			if isServerShuttingDown() {
+				slog.Info("Server normal terminé, arrêt des nouvelles connexions")
+				return
+			}
 			slog.Error(err.Error())
 			continue
 		}
 		slog.Info("Incoming connection from " + c.RemoteAddr().String() + " on port " + *port)
-
-		// Lance la gestion du client en parallèle pour pas bloquer
 		go HandleClient(c)
 	}
-	TerminateServerP2(clientTerminant.writer, clientTerminant.reader)
-	return
 }
 
 func runControlServer(controlPort *string) {
-	// Ouvre le serveur sur le port
+	defer serverWg.Done()
+
 	l, err := net.Listen("tcp", ":"+*controlPort)
 	if err != nil {
 		slog.Error(err.Error())
 		return
 	}
-	connectiontime = time.Now()
 
-	// Ferme le serveur proprement quand la fonction se termine
 	defer func() {
 		err := l.Close()
 		if err != nil {
@@ -108,139 +185,117 @@ func runControlServer(controlPort *string) {
 	}()
 	slog.Debug("Now listening on port " + *controlPort)
 
-	// Boucle infinie qui attend les connexions
+	// Goroutine pour fermer le listener quand shutdownChan est fermé
+	go func() {
+		<-shutdownChan
+		l.Close()
+	}()
+
 	for {
-		if terminaisonDuServeur {
-			slog.Info("Server is terminating, no longer accepting new connections.")
-			break
-		}
-		// Attend qu'un client se connecte
 		c, err := l.Accept()
 		if err != nil {
+			if isServerShuttingDown() {
+				slog.Info("Server de contrôle terminé, arrêt des nouvelles connexions")
+				return
+			}
 			slog.Error(err.Error())
 			continue
 		}
 		slog.Info("Incoming connection from " + c.RemoteAddr().String())
-
-		// Lance la gestion du client en parallèle pour pas bloquer
 		HandleControlClient(c)
 	}
-	TerminateServerP2(clientTerminant.writer, clientTerminant.reader)
-	return
 }
 
 // Gère un client
 func HandleClient(conn net.Conn) {
-	// À la fin de la fonction, on déconnecte le client
 	defer ClientLogOut(conn)
 
-	taille := <-compteurClient // Récupère le nombre actuel
-	taille++                   // Ajoute 1
+	taille := incrementerClient()
 	log.Println("nombre de client : ", taille)
-	compteurClient <- taille // Remet le nouveau nombre
 
-	// Affiche qui s'est connecté et quand
 	log.Println("adresse IP du nouveau client :", conn.RemoteAddr().String(), " connecté le : ", time.Now(), " connecté sur le port ", "3333")
 
-	// Prépare la lecture et l'écriture des messages
 	reader := bufio.NewReader(conn)
 	writer := bufio.NewWriter(conn)
 
-	// Envoie "hello" au client pour commencer
-	listeMessage = append(listeMessage, "sent message :", "hello \n")
+	addToListeMessage("sent message :", "hello \n")
 	if err := p.Send_message(writer, "hello"); err != nil {
 		log.Println("Erreur lors de l'envoi de 'hello':", err)
 		return
 	}
 
-	// Boucle qui attend les messages du client
 	for {
-		// Lit le message du client
 		msg, err := p.Receive_message(reader)
 		if err != nil {
-			// Si erreur = client déco
 			log.Println("Client déconnecté ou erreur de lecture:", err)
 			return
 		}
 
-		// Enlève les espaces dans le message
 		cleanedMsg := strings.TrimSpace(msg)
 		log.Println(cleanedMsg)
 
-		// Cas ou la requete est en plusieurs parties
 		var commGet = strings.Split(cleanedMsg, " ")
 
-		// le message start (global)
-		if !terminaisonDuServeur {
+		if !isServerShuttingDown() {
 			log.Println("cleanedMessage :", cleanedMsg)
 			if cleanedMsg == "start" {
-				listeMessage = append(listeMessage, "sent message :", "ok \n")
+				addToListeMessage("sent message :", "ok \n")
 				if err := p.Send_message(writer, "ok"); err != nil {
 					log.Println("Erreur lors de l'envoi de 'ok' après 'start':", err)
 					return
 				}
 
-				// LIST
 			} else if cleanedMsg == "List" {
-				incrementeCompteurOperations()
-				log.Println("Commande LIST reçue")
+				nbOp := incrementerOperations()
+				log.Println("Commande LIST reçue, opérations en cours:", nbOp)
 				ListServer(writer, reader)
-				var fichier, err = os.ReadDir("Docs")
-				log.Println("fichier :", fichier)
-				if err != nil {
-					log.Println(err)
-				}
-				var liste = ParcourFolder(fichier, " ", 0)
-				log.Println(liste)
-				decrementeCompteurOperations()
+				nbOp = decrementerOperations()
+				log.Println("Commande LIST terminée, opérations restantes:", nbOp)
 
-				// GET
 			} else if len(commGet) == 2 && commGet[0] == "GET" {
-				incrementeCompteurOperations()
-				log.Println("Commande GET reçue pour:", commGet[1])
+				nbOp := incrementerOperations()
+				log.Println("Commande GET reçue pour:", commGet[1], ", opérations en cours:", nbOp)
 				Getserver(commGet, writer, reader)
-				decrementeCompteurOperations()
+				nbOp = decrementerOperations()
+				log.Println("Commande GET terminée, opérations restantes:", nbOp)
 
-				// TERMINATE
-			} else if cleanedMsg == "Terminate" {
-				log.Println("Commande TERMINATE reçue")
-				TerminateServerP1(writer, reader)
-
-				// UNKNOWN
 			} else if cleanedMsg == "Unknown" {
-				log.Println("Commande inconnue. Veuillez entrer GET, LIST, TERMINATE ou END.")
-				continue
+				addToListeMessage("sent message :", "Commande inconnue. Veuillez entrer HELP pour avoir la liste de commande. \n")
+				if err := p.Send_message(writer, "Commande inconnue. Veuillez entrer HELP pour avoir la liste de commande."); err != nil {
+					log.Println("Erreur lors de l'envoi du message de terminaison:", err)
+				}
+				log.Println("Commande inconnue. Veuillez entrer HELP pour avoir la liste de commande. \n")
 
-				//END ou message inattendu
+			} else if cleanedMsg == "Help" {
+				helpMessage := "Commandes disponibles : LIST, GET <filename>, HELP, END"
+				addToListeMessage("sent message :", helpMessage + " \n")
+				if err := p.Send_message(writer, helpMessage); err != nil {
+					log.Println("Erreur lors de l'envoi de 'help':", err)
+					return
+				}
+				
 			} else if cleanedMsg == "end" {
-				listeMessage = append(listeMessage, "sent message :", "ok \n")
+				addToListeMessage("sent message :", "ok \n")
 				if err := p.Send_message(writer, "ok"); err != nil {
 					log.Println("Erreur lors de l'envoi de 'ok' après 'end':", err)
 				}
 				return
 			} else if cleanedMsg == "messages" {
+				listeMessageMutex.Lock()
 				fmt.Println(strings.Trim(fmt.Sprint(listeMessage), "[]"))
+				listeMessageMutex.Unlock()
 			} else {
-				// Message inconnu : log, informer le client et continuer la connexion
 				log.Println("Message inattendu du client:", cleanedMsg)
 				continue
 			}
 		} else {
-			listeMessage = append(listeMessage, "sent message :", "ok \n")
-			// Si le serveur est en terminaison, on informe le client et on ferme la connexion
+			addToListeMessage("sent message :", "ok \n")
 			if err := p.Send_message(writer, "Server terminating, connection closing."); err != nil {
 				log.Println("Erreur lors de l'envoi du message de terminaison:", err)
 			}
-			continue
+			return
 		}
 
-		//msg, err = p.Receive_message(reader)
-		log.Println("message1")
-		//if err != nil {
-		//	log.Println("Erreur lors de la réception de la réponse:", err)
-		//	return
-		//}
-		// pour le mode debug
 		if slog.Default().Enabled(context.Background(), slog.LevelDebug) {
 			log.Println("debug ")
 			DebugServer(writer, reader)
@@ -249,111 +304,108 @@ func HandleClient(conn net.Conn) {
 }
 
 func HandleControlClient(conn net.Conn) {
-	// À la fin de la fonction, on déconnecte le client
 	defer ClientLogOut(conn)
 
-	taille := <-compteurClient // Récupère le nombre actuel
-	taille++                   // Ajoute 1
+	taille := incrementerClient()
 	log.Println("nombre de client : ", taille)
-	compteurClient <- taille // Remet le nouveau nombre
 
-	// Affiche qui s'est connecté et quand
 	log.Println("adresse IP du nouveau client :", conn.RemoteAddr().String(), " connecté le : ", time.Now())
 
-	// Prépare la lecture et l'écriture des messages
 	reader := bufio.NewReader(conn)
 	writer := bufio.NewWriter(conn)
 
-	// Envoie "hello" au client pour commencer
-	listeMessage = append(listeMessage, "sent message :", "hello \n")
+	addToListeMessage("sent message :", "hello \n")
 	if err := p.Send_message(writer, "hello"); err != nil {
 		log.Println("Erreur lors de l'envoi de 'hello':", err)
 		return
 	}
 
-	// Boucle qui attend les messages du client
 	for {
-		// Lit le message du client
 		msg, err := p.Receive_message(reader)
 		if err != nil {
-			// Si erreur = client déco
 			log.Println("Client déconnecté ou erreur de lecture:", err)
 			return
 		}
 
-		// Enlève les espaces dans le message
 		cleanedMsg := strings.TrimSpace(msg)
 		log.Println(cleanedMsg)
 
-		// Cas ou la requete est en plusieurs parties
 		var commHideReveal = strings.Split(cleanedMsg, " ")
 
-		// le message start (global)
-		if !terminaisonDuServeur {
+		if !isServerShuttingDown() {
 			log.Println("cleanedMessage :", cleanedMsg)
 			if cleanedMsg == "start" {
-				listeMessage = append(listeMessage, "sent message :", "ok \n")
+				addToListeMessage("sent message :", "ok \n")
 				if err := p.Send_message(writer, "ok"); err != nil {
 					log.Println("Erreur lors de l'envoi de 'ok' après 'start':", err)
 					return
 				}
 
-				// LIST
 			} else if cleanedMsg == "List" {
-				incrementeCompteurOperations()
-				log.Println("Commande LIST reçue")
+				nbOp := incrementerOperations()
+				log.Println("Commande LIST reçue, opérations en cours:", nbOp)
 				ListServer(writer, reader)
-				decrementeCompteurOperations()
+				nbOp = decrementerOperations()
+				log.Println("Commande LIST terminée, opérations restantes:", nbOp)
 
-				// TERMINATE
 			} else if cleanedMsg == "Terminate" {
 				log.Println("Commande TERMINATE reçue")
-				TerminateServerP1(writer, reader)
+				clientTerminantMutex.Lock()
+				clientTerminant.reader = reader
+				clientTerminant.writer = writer
+				clientTerminantMutex.Unlock()
+				// Lancer la terminaison dans une goroutine
+				go TerminateServer()
+				// Attendre que le serveur se termine
+				<-shutdownChan
+				return
 
-				// UNKNOWN
 			} else if cleanedMsg == "Unknown" {
-				log.Println("Commande inconnue. Veuillez entrer GET, LIST, TERMINATE ou END.")
-				continue
+				addToListeMessage("sent message :", "Commande inconnue. Veuillez entrer HELP pour avoir la liste de commande. \n")
+				if err := p.Send_message(writer, "Commande inconnue. Veuillez entrer HELP pour avoir la liste de commande."); err != nil {
+					log.Println("Erreur lors de l'envoi du message de terminaison:", err)
+				}
+				log.Println("Commande inconnue. Veuillez entrer HELP pour avoir la liste de commande.")	
 
-				// HIDE
+			} else if cleanedMsg == "Help" {
+				helpMessage := "Commandes disponibles : LIST, HIDE, REVEAL, HELP, END et TERMINATE"
+				addToListeMessage("sent message :", helpMessage + " \n")
+				if err := p.Send_message(writer, helpMessage); err != nil {
+					log.Println("Erreur lors de l'envoi de 'help':", err)
+					return
+				}
+
 			} else if len(commHideReveal) == 2 && commHideReveal[0] == "HIDE" {
-				incrementeCompteurOperations()
-				log.Println("Commande HIDE reçue")
+				nbOp := incrementerOperations()
+				log.Println("Commande HIDE reçue, opérations en cours:", nbOp)
 				HIDE(commHideReveal, writer, reader)
-				decrementeCompteurOperations()
+				nbOp = decrementerOperations()
+				log.Println("Commande HIDE terminée, opérations restantes:", nbOp)
 
-				//END ou message inattendu
 			} else if cleanedMsg == "end" {
-				listeMessage = append(listeMessage, "sent message :", "ok \n")
+				addToListeMessage("sent message :", "ok \n")
 				if err := p.Send_message(writer, "ok"); err != nil {
 					log.Println("Erreur lors de l'envoi de 'ok' après 'end':", err)
 				}
 				return
 
 			} else if cleanedMsg == "messages" {
+				listeMessageMutex.Lock()
 				log.Println(listeMessage)
+				listeMessageMutex.Unlock()
 
 			} else {
-				// Message inconnu : log, informer le client et continuer la connexion
 				log.Println("Message inattendu du client:", cleanedMsg)
 				continue
 			}
 		} else {
-			listeMessage = append(listeMessage, "sent message :", "ok \n")
-			// Si le serveur est en terminaison, on informe le client et on ferme la connexion
+			addToListeMessage("sent message :", "ok \n")
 			if err := p.Send_message(writer, "Server terminating, connection closing."); err != nil {
 				log.Println("Erreur lors de l'envoi du message de terminaison:", err)
 			}
-			continue
+			return
 		}
 
-		//msg, err = p.Receive_message(reader)
-		log.Println("message1")
-		//if err != nil {
-		//	log.Println("Erreur lors de la réception de la réponse:", err)
-		//	return
-		//}
-		// pour le mode debug
 		if slog.Default().Enabled(context.Background(), slog.LevelDebug) {
 			log.Println("debug ")
 			DebugServer(writer, reader)
@@ -363,15 +415,11 @@ func HandleControlClient(conn net.Conn) {
 
 // Déconnecte le client
 func ClientLogOut(conn net.Conn) {
-	taille := <-compteurClient // Récupère le nombre actuel
-	taille--                   // Enlève 1
+	taille := decrementerClient()
 	log.Println("nombre de client : ", taille)
-	compteurClient <- taille // Remet le nouveau nombre
 
-	// Affiche qui s'est déconnecté et quand
 	log.Println("adresse IP du client : ", conn.RemoteAddr().String(), " déconnecté le : ", time.Now())
 
-	// Ferme la connexion
 	err := conn.Close()
 	if err != nil {
 		return
@@ -381,7 +429,8 @@ func ClientLogOut(conn net.Conn) {
 func Getserver(commGet []string, writer *bufio.Writer, reader *bufio.Reader) {
 	var fichiers, err = os.ReadDir("Docs")
 	if err != nil {
-		log.Fatal(err)
+		log.Println("Erreur lecture dossier Docs:", err)
+		return
 	}
 	var found = false
 
@@ -391,36 +440,32 @@ func Getserver(commGet []string, writer *bufio.Writer, reader *bufio.Reader) {
 			log.Println("Fichier trouvé:", fichier.Name())
 			var path = filepath.Join("Docs", fichier.Name())
 
-			// envoie du start
-			listeMessage = append(listeMessage, "sent message :", "Start \n")
+			addToListeMessage("sent message :", "Start \n")
 			if err := p.Send_message(writer, "Start"); err != nil {
 				log.Println("Erreur lors de l'envoi de 'Start':", err)
 				return
 			}
-			// lecture du contenu
 			var data, err = os.ReadFile(path)
 			if err != nil {
 				log.Println("Ne peut pas lire le contenu du fichier :", err)
 				return
 			}
-			// transfert du fichier
-			listeMessage = append(listeMessage, "sent message :", string(data), "\n")
+			addToListeMessage("sent message :", string(data), "\n")
 			err = p.Send_message(writer, string(data))
 			if err != nil {
 				log.Println("N'a pas pû transférer le fichier :", err)
 			}
+			break
 		}
 	}
-	// gestion du FileUnknown
 	if !found {
 		log.Println("Fichier non trouvé:", commGet[1])
-		listeMessage = append(listeMessage, "sent message :", "FileUnknown \n")
+		addToListeMessage("sent message :", "FileUnknown \n")
 		if err := p.Send_message(writer, "FileUnknown"); err != nil {
 			log.Println("Erreur lors de l'envoi de 'FileUnknown':", err)
 			return
 		}
 	}
-	// ok du client
 	var response, _ = p.Receive_message(reader)
 	log.Println("Réponse du client:", response)
 }
@@ -428,7 +473,8 @@ func Getserver(commGet []string, writer *bufio.Writer, reader *bufio.Reader) {
 func HIDE(commHideReveal []string, writer *bufio.Writer, reader *bufio.Reader) {
 	var fichiers, err = os.ReadDir("Docs")
 	if err != nil {
-		log.Fatal(err)
+		log.Println("Erreur lecture dossier Docs:", err)
+		return
 	}
 	var found = false
 
@@ -446,18 +492,17 @@ func HIDE(commHideReveal []string, writer *bufio.Writer, reader *bufio.Reader) {
 			}
 			log.Println("Le fichier a bien été HIDE")
 
-			// envoie du Ok
-			listeMessage = append(listeMessage, "sent message :", "Start \n")
-			if err := p.Send_message(writer, "Start"); err != nil {
-				log.Println("Erreur lors de l'envoi de 'Start':", err)
+			addToListeMessage("sent message :", "OK \n")
+			if err := p.Send_message(writer, "OK"); err != nil {
+				log.Println("Erreur lors de l'envoi de 'OK':", err)
 				return
 			}
+			break
 		}
 	}
-	// gestion du FileUnknown
 	if !found {
 		log.Println("Fichier non trouvé:", commHideReveal[1])
-		listeMessage = append(listeMessage, "sent message :", "FileUnknown \n")
+		addToListeMessage("sent message :", "FileUnknown \n")
 		if err := p.Send_message(writer, "FileUnknown"); err != nil {
 			log.Println("Erreur lors de l'envoi de 'FileUnknown':", err)
 			return
@@ -467,9 +512,13 @@ func HIDE(commHideReveal []string, writer *bufio.Writer, reader *bufio.Reader) {
 
 func ListServer(writer *bufio.Writer, reader *bufio.Reader) {
 	var fichiers, err = os.ReadDir("Docs")
+	if err != nil {
+		log.Println("Erreur lecture dossier Docs:", err)
+		return
+	}
 	var list = ""
 	var size = 0
-	listeMessage = append(listeMessage, "sent message :", "Start \n")
+	addToListeMessage("sent message :", "Start \n")
 	if err := p.Send_message(writer, "Start"); err != nil {
 		log.Println("Erreur lors de l'envoi de 'Start':", err)
 		return
@@ -490,15 +539,11 @@ func ListServer(writer *bufio.Writer, reader *bufio.Reader) {
 			list = list + " --" + fichier.Name() + " " + strconv.FormatInt(int64(fileInfo.Size()), 10)
 			size = size + 1
 		}
-		if err != nil {
-			log.Fatal(err)
-		}
 	}
 	var newlist = "FileCnt : " + strconv.Itoa(size) + list
 	log.Println(newlist)
-	listeMessage = append(listeMessage, "sent message :", newlist, "\n")
+	addToListeMessage("sent message :", newlist, "\n")
 	p.Send_message(writer, newlist)
-
 }
 
 func ParcourFolder(fichiers []os.DirEntry, list string, size int) string {
@@ -514,7 +559,8 @@ func ParcourFolder(fichiers []os.DirEntry, list string, size int) string {
 			log.Println(filepath.Join("Docs/", fichier.Name()))
 			var newfichiers, err = os.ReadDir(filepath.Join("Docs/", fichier.Name()))
 			if err != nil {
-				log.Fatal(err)
+				log.Println("Erreur lecture sous-dossier:", err)
+				continue
 			}
 			var liste = ParcourFolder(newfichiers, list, size)
 			list = list + " --" + fichier.Name() + " " + strconv.FormatInt(int64(fileInfo.Size()), 10) + " -- sous-dossier: " + " [" + liste + "]"
@@ -526,107 +572,62 @@ func ParcourFolder(fichiers []os.DirEntry, list string, size int) string {
 }
 
 func DebugServer(writer *bufio.Writer, reader *bufio.Reader) {
-	nbOperation := <-compteurOperations
-	nbClient := <-compteurClient
+	nbOperation := getCompteurOperations()
+	nbClient := getCompteurClient()
 	var list = []string{"Debug :", "Serveur créé à", slog.AnyValue(connectiontime).String(), "nombre d'opérations en cours :", strconv.FormatInt(int64(nbOperation), 10), "nombre de clients connectés :", strconv.FormatInt(int64(nbClient), 10)}
 	slog.Debug(list[0])
 	slog.Debug(list[1] + " " + list[2])
 	slog.Debug(list[3] + " " + list[4])
 	slog.Debug(list[5] + " " + list[6])
-	compteurClient <- nbClient
-	compteurOperations <- nbOperation
-	listeMessage = append(listeMessage, "sent message :", " debug \n")
-	//if err := p.Send_message(writer, "debug"); err != nil {
-	//	log.Println("Erreur lors de l'envoi de la commande:", err)
-	//	return
-	//}
-	//var msg, err = p.Receive_message(reader)
-	//log.Println(msg)
-	//if err != nil {
-	//	log.Println("Erreur lors de la réception de la réponse:", err)
-	//	return
-	//}
+	addToListeMessage("sent message :", " debug \n")
+
 	var newlist = strings.Join(list, "--")
 	log.Println(newlist)
-	//if msg == "ok" {
-	//	p.Send_message(writer, newlist)
-	//}
 }
 
-func incrementeCompteurOperations() {
-	nbOperation := <-compteurOperations // Récupère le nombre actuel
-	nbOperation++                       // Ajoute 1
-	log.Println("nombre d'operations en cours': ", nbOperation)
-	compteurOperations <- nbOperation // Remet le nouveau nombre
-}
+// Fonction de terminaison unifiée
+func TerminateServer() {
+	log.Println("Démarrage de la procédure de terminaison...")
 
-func decrementeCompteurOperations() {
-	nbOperation := <-compteurOperations // Récupère le nombre actuel
-	nbOperation--                       // Enlève 1
-	log.Println("nombre d'operations en cours': ", nbOperation)
-	compteurOperations <- nbOperation // Remet le nouveau nombre
-}
+	// Marquer le serveur comme en cours de terminaison
+	setServerShuttingDown()
 
-func getnbcompteur(compteur chan int) int {
-	nbOperation := <-compteur // Récupère le nombre actuel
-	compteur <- nbOperation   // Remet le nouveau nombre
-	return nbOperation
-}
+	// Fermer le canal pour arrêter l'acceptation de nouvelles connexions (une seule fois)
+	shutdownOnce.Do(func() {
+		close(shutdownChan)
+	})
 
-func TerminateServerP1(writer *bufio.Writer, reader *bufio.Reader) {
-	// Met le boolean de terminaison à true
-	terminaisonDuServeur = true
-	// Pour ajouter un client :
-	//clientTerminant = append(clientTerminant, ClientIO{
-	//	reader,writer})
-	clientTerminant.reader = reader
-	clientTerminant.writer = writer
-}
+	// Récupérer le client de contrôle de façon thread-safe
+	clientTerminantMutex.Lock()
+	writer := clientTerminant.writer
+	clientTerminantMutex.Unlock()
 
-func TerminateServerP2(writer *bufio.Writer, reader *bufio.Reader) {
+	// Attendre que toutes les opérations en cours se terminent
+	for {
+		nbOperation := getCompteurOperations()
+		if nbOperation <= 0 {
+			break
+		}
 
-	// Informe le client que la terminaison est en cours
-	nbOperation := getnbcompteur(compteurOperations)
-	for nbOperation > 0 {
-		time.Sleep(1 * time.Second)
-		nbOperation = getnbcompteur(compteurOperations)
-		message := "il reste " + strconv.Itoa(nbOperation) + " opérations en cours, attente de la fin..."
-		listeMessage = append(listeMessage, "sent message :", message, "\n")
+		message := fmt.Sprintf("Il reste %d opération(s) en cours, attente de la fin...", nbOperation)
+		log.Println(message)
+		addToListeMessage("sent message :", message, "\n")
 		if err := p.Send_message(writer, message); err != nil {
-			log.Println("Erreur lors de l'envoi de la commande:", err)
-			return
+			log.Println("Erreur lors de l'envoi du message d'attente:", err)
+			break
 		}
+		time.Sleep(1 * time.Second)
 	}
-	listeMessage = append(listeMessage, "sent message :", "Terminaison finie, le serveur s'éteint \n")
-	if err := p.Send_message(writer, "Terminaison finie, le serveur s'éteint"); err != nil {
-		log.Println("Erreur lors de l'envoi de la commande:", err)
-		return
-	}
-}
 
-func tree(writer *bufio.Writer, reader *bufio.Reader) {
-	var fichiers, err = os.ReadDir("Docs")
-	var list = ""
-	var size = 0
-	listeMessage = append(listeMessage, "sent message :", "Start \n")
-	if err := p.Send_message(writer, "Start"); err != nil {
-		log.Println("Erreur lors de l'envoi de 'Start':", err)
-		return
+	// Envoyer le message final au client de contrôle
+	addToListeMessage("sent message :", "Terminaison finie, le serveur s'éteint \n")
+	if err := p.Send_message(writer, "Terminaison finie, le serveur s'éteint"); err != nil {
+		log.Println("Erreur lors de l'envoi du message de terminaison:", err)
 	}
-	log.Println(fichiers)
-	data, err := p.Receive_message(reader)
-	log.Println("data:", data)
-	if err != nil {
-		log.Println("Erreur lors de la lecture du fichier:", err)
-		return
-	} else if strings.TrimSpace(data) == "OK" {
-		//list, size = ParcourFolder(fichiers, list, size)
-		if err != nil {
-			log.Fatal(err)
-		}
-	}
-	var newlist = "FileCnt : " + strconv.Itoa(size) + list
-	log.Println(newlist)
-	listeMessage = append(listeMessage, "sent message :", newlist, "\n")
-	p.Send_message(writer, newlist)
+
+	log.Println("Terminaison complète, fermeture du serveur...")
+
+	// Forcer la sortie du programme après un court délai
+	time.Sleep(500 * time.Millisecond)
+	os.Exit(0)
 }
