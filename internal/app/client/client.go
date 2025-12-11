@@ -93,13 +93,13 @@ func RunClient(conn net.Conn) {
 		if command == "END" {
 			break
 
-		// Commandes disponibles sur le port normal (3333)
+			// Commandes disponibles sur le port normal (3333)
 		} else if command == "GET" && !isControlPort && len(split) == 2 {
 			Getclient(line, split, conn, writer, reader)
 
 		} else if command == "LIST" {
 			ListClient(writer, reader)
-		
+
 		} else if command == "HELP" {
 			listeMessage = append(listeMessage, "sent message :", "Help \n")
 			if err := p.Send_message(writer, "Help"); err != nil {
@@ -114,8 +114,8 @@ func RunClient(conn net.Conn) {
 				return
 			}
 			log.Println(msg)
-		
-		// Commandes disponibles uniquement sur le port de contrôle (3334)
+
+			// Commandes disponibles uniquement sur le port de contrôle (3334)
 		} else if command == "TERMINATE" && isControlPort {
 			TerminateClient(writer, reader)
 			return // Fermer la connexion après terminate
@@ -336,9 +336,9 @@ func TerminateClient(writer *bufio.Writer, reader *bufio.Reader) {
 		log.Println("Erreur lors de l'envoi de la commande:", err)
 		return
 	}
-	
+
 	log.Println("Commande TERMINATE envoyée, attente de la réponse du serveur...")
-	
+
 	for {
 		rep, err := p.Receive_message(reader)
 		if err != nil {
@@ -350,10 +350,10 @@ func TerminateClient(writer *bufio.Writer, reader *bufio.Reader) {
 			log.Println("Erreur lors de la réception de la réponse:", err)
 			return
 		}
-		
+
 		listeMessage = append(listeMessage, "received message :", rep)
 		rep = strings.TrimSpace(rep)
-		
+
 		if rep == "Terminaison finie, le serveur s'éteint" {
 			log.Println(rep)
 			log.Println("Le serveur s'est arrêté avec succès")

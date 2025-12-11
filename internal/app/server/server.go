@@ -264,16 +264,16 @@ func HandleClient(conn net.Conn) {
 				if err := p.Send_message(writer, "Commande inconnue. Veuillez entrer HELP pour avoir la liste de commande."); err != nil {
 					log.Println("Erreur lors de l'envoi du message de terminaison:", err)
 				}
-				log.Println("Commande inconnue. Veuillez entrer HELP pour avoir la liste de commande. \n")
+				log.Println("Commande inconnue. Veuillez entrer HELP pour avoir la liste de commande.")
 
 			} else if cleanedMsg == "Help" {
 				helpMessage := "Commandes disponibles : LIST, GET <filename>, HELP, END"
-				addToListeMessage("sent message :", helpMessage + " \n")
+				addToListeMessage("sent message :", helpMessage+" \n")
 				if err := p.Send_message(writer, helpMessage); err != nil {
 					log.Println("Erreur lors de l'envoi de 'help':", err)
 					return
 				}
-				
+
 			} else if cleanedMsg == "end" {
 				addToListeMessage("sent message :", "ok \n")
 				if err := p.Send_message(writer, "ok"); err != nil {
@@ -365,11 +365,11 @@ func HandleControlClient(conn net.Conn) {
 				if err := p.Send_message(writer, "Commande inconnue. Veuillez entrer HELP pour avoir la liste de commande."); err != nil {
 					log.Println("Erreur lors de l'envoi du message de terminaison:", err)
 				}
-				log.Println("Commande inconnue. Veuillez entrer HELP pour avoir la liste de commande.")	
+				log.Println("Commande inconnue. Veuillez entrer HELP pour avoir la liste de commande.")
 
 			} else if cleanedMsg == "Help" {
-				helpMessage := "Commandes disponibles : LIST, HIDE, REVEAL, HELP, END et TERMINATE"
-				addToListeMessage("sent message :", helpMessage + " \n")
+				helpMessage := "Commandes disponibles : LIST, HIDE, REVEAL, HELP, END et TERMINATE	"
+				addToListeMessage("sent message :", helpMessage+" \n")
 				if err := p.Send_message(writer, helpMessage); err != nil {
 					log.Println("Erreur lors de l'envoi de 'help':", err)
 					return
