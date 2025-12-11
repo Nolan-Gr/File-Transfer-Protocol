@@ -17,8 +17,13 @@ func parseArgs() (remote string) {
 		slog.SetLogLoggerLevel(slog.LevelDebug)
 		slog.Debug("Set logging level to debug")
 	}
+	port := *pFlag
 
-	remote = *aFlag + ":" + *pFlag
+	if *pFlag == "control" {
+		port = "3334"
+	}
+
+	remote = *aFlag + ":" + port
 	return
 }
 

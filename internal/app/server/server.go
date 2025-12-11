@@ -33,13 +33,19 @@ type ClientIO struct {
 
 var clientTerminant ClientIO
 
-var listeMessage = []string{"Historique des messgaes : \n"}
+var listeMessage = []string{"Historique des messages : \n"}
 
 // Lance le serveur sur le port donné
-func RunServer(port *string) {
+func RunServer(port *string, controlPort *string) {
 	compteurClient <- 0
 	compteurOperations <- 0
 
+	go runNormalServer(port) // Lancer le serveur de base en goroutine
+
+	runControlServer(controlPort) // Lance le serveur contrôle pour avoir qu'une seule connexion à la fois
+}
+
+func runNormalServer(port *string) {
 	// Ouvre le serveur sur le port
 	l, err := net.Listen("tcp", ":"+*port)
 	if err != nil {
@@ -79,6 +85,46 @@ func RunServer(port *string) {
 	return
 }
 
+func runControlServer(controlPort *string) {
+	// Ouvre le serveur sur le port
+	l, err := net.Listen("tcp", ":"+*controlPort)
+	if err != nil {
+		slog.Error(err.Error())
+		return
+	}
+	connectiontime = time.Now()
+
+	// Ferme le serveur proprement quand la fonction se termine
+	defer func() {
+		err := l.Close()
+		if err != nil {
+			return
+		}
+		slog.Debug("Stopped listening on port " + *controlPort)
+	}()
+	slog.Debug("Now listening on port " + *controlPort)
+
+	// Boucle infinie qui attend les connexions
+	for {
+		if terminaisonDuServeur {
+			slog.Info("Server is terminating, no longer accepting new connections.")
+			break
+		}
+		// Attend qu'un client se connecte
+		c, err := l.Accept()
+		if err != nil {
+			slog.Error(err.Error())
+			continue
+		}
+		slog.Info("Incoming connection from " + c.RemoteAddr().String())
+
+		// Lance la gestion du client en parallèle pour pas bloquer
+		HandleControlClient(c)
+	}
+	TerminateServerP2(clientTerminant.writer, clientTerminant.reader)
+	return
+}
+
 // Gère un client
 func HandleClient(conn net.Conn) {
 	// À la fin de la fonction, on déconnecte le client
@@ -97,7 +143,7 @@ func HandleClient(conn net.Conn) {
 	writer := bufio.NewWriter(conn)
 
 	// Envoie "hello" au client pour commencer
-	listeMessage = append(listeMessage,"sent message :", "hello \n")
+	listeMessage = append(listeMessage, "sent message :", "hello \n")
 	if err := p.Send_message(writer, "hello"); err != nil {
 		log.Println("Erreur lors de l'envoi de 'hello':", err)
 		return
@@ -124,7 +170,7 @@ func HandleClient(conn net.Conn) {
 		if !terminaisonDuServeur {
 			log.Println("cleanedMessage :", cleanedMsg)
 			if cleanedMsg == "start" {
-				listeMessage = append(listeMessage,"sent message :", "ok \n")
+				listeMessage = append(listeMessage, "sent message :", "ok \n")
 				if err := p.Send_message(writer, "ok"); err != nil {
 					log.Println("Erreur lors de l'envoi de 'ok' après 'start':", err)
 					return
@@ -156,7 +202,7 @@ func HandleClient(conn net.Conn) {
 
 				//END ou message inattendu
 			} else if cleanedMsg == "end" {
-				listeMessage = append(listeMessage,"sent message :", "ok \n")
+				listeMessage = append(listeMessage, "sent message :", "ok \n")
 				if err := p.Send_message(writer, "ok"); err != nil {
 					log.Println("Erreur lors de l'envoi de 'ok' après 'end':", err)
 				}
@@ -169,7 +215,7 @@ func HandleClient(conn net.Conn) {
 				continue
 			}
 		} else {
-			listeMessage = append(listeMessage,"sent message :", "ok \n")
+			listeMessage = append(listeMessage, "sent message :", "ok \n")
 			// Si le serveur est en terminaison, on informe le client et on ferme la connexion
 			if err := p.Send_message(writer, "Server terminating, connection closing."); err != nil {
 				log.Println("Erreur lors de l'envoi du message de terminaison:", err)
@@ -188,6 +234,19 @@ func HandleClient(conn net.Conn) {
 			log.Println("debug ")
 			DebugServer(writer, reader)
 		}
+	}
+}
+
+func HandleControlClient(conn net.Conn) {
+	defer conn.Close()
+
+	//reader := bufio.NewReader(conn)
+	writer := bufio.NewWriter(conn)
+
+	// Envoyer "hello" comme pour un client normal
+	if err := p.Send_message(writer, "hello"); err != nil {
+		log.Println("Erreur:", err)
+		return
 	}
 }
 
@@ -222,7 +281,7 @@ func Getserver(commGet []string, writer *bufio.Writer, reader *bufio.Reader) {
 			var path = filepath.Join("Docs", fichier.Name())
 
 			// envoie du start
-			listeMessage = append(listeMessage,"sent message :", "Start \n")
+			listeMessage = append(listeMessage, "sent message :", "Start \n")
 			if err := p.Send_message(writer, "Start"); err != nil {
 				log.Println("Erreur lors de l'envoi de 'Start':", err)
 				return
@@ -234,7 +293,7 @@ func Getserver(commGet []string, writer *bufio.Writer, reader *bufio.Reader) {
 				return
 			}
 			// transfert du fichier
-			listeMessage = append(listeMessage,"sent message :", string(data), "\n")
+			listeMessage = append(listeMessage, "sent message :", string(data), "\n")
 			err = p.Send_message(writer, string(data))
 			if err != nil {
 				log.Println("N'a pas pû transférer le fichier :", err)
@@ -244,7 +303,7 @@ func Getserver(commGet []string, writer *bufio.Writer, reader *bufio.Reader) {
 	// gestion du FileUnknown
 	if !found {
 		log.Println("Fichier non trouvé:", commGet[1]) // ← Log
-		listeMessage = append(listeMessage,"sent message :", "FileUnknown \n")
+		listeMessage = append(listeMessage, "sent message :", "FileUnknown \n")
 		if err := p.Send_message(writer, "FileUnknown"); err != nil {
 			log.Println("Erreur lors de l'envoi de 'FileUnknown':", err)
 			return
@@ -259,7 +318,7 @@ func ListServer(writer *bufio.Writer, reader *bufio.Reader) {
 	var fichiers, err = os.ReadDir("Docs")
 	var list = ""
 	var size = 0
-	listeMessage = append(listeMessage,"sent message :", "Start \n")
+	listeMessage = append(listeMessage, "sent message :", "Start \n")
 	if err := p.Send_message(writer, "Start"); err != nil {
 		log.Println("Erreur lors de l'envoi de 'Start':", err)
 		return
@@ -286,7 +345,7 @@ func ListServer(writer *bufio.Writer, reader *bufio.Reader) {
 	}
 	var newlist = "FileCnt : " + strconv.Itoa(size) + list
 	log.Println(newlist)
-	listeMessage = append(listeMessage,"sent message :", newlist, "\n")
+	listeMessage = append(listeMessage, "sent message :", newlist, "\n")
 	p.Send_message(writer, newlist)
 }
 
@@ -300,7 +359,7 @@ func DebugServer(writer *bufio.Writer, reader *bufio.Reader) {
 	slog.Debug(list[5] + " " + list[6])
 	compteurClient <- nbClient
 	compteurOperations <- nbOperation
-	listeMessage = append(listeMessage,"sent message :", " debug \n")
+	listeMessage = append(listeMessage, "sent message :", " debug \n")
 	//if err := p.Send_message(writer, "debug"); err != nil {
 	//	log.Println("Erreur lors de l'envoi de la commande:", err)
 	//	return
@@ -356,13 +415,13 @@ func TerminateServerP2(writer *bufio.Writer, reader *bufio.Reader) {
 		time.Sleep(1 * time.Second)
 		nbOperation = getnbcompteur(compteurOperations)
 		message := "il reste " + strconv.Itoa(nbOperation) + " opérations en cours, attente de la fin..."
-		listeMessage = append(listeMessage,"sent message :", message, "\n")
+		listeMessage = append(listeMessage, "sent message :", message, "\n")
 		if err := p.Send_message(writer, message); err != nil {
 			log.Println("Erreur lors de l'envoi de la commande:", err)
 			return
 		}
 	}
-	listeMessage = append(listeMessage,"sent message :", "Terminaison finie, le serveur s'éteint \n")
+	listeMessage = append(listeMessage, "sent message :", "Terminaison finie, le serveur s'éteint \n")
 	if err := p.Send_message(writer, "Terminaison finie, le serveur s'éteint"); err != nil {
 		log.Println("Erreur lors de l'envoi de la commande:", err)
 		return

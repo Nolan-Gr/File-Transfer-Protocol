@@ -7,10 +7,11 @@ import (
 	"gitlab.univ-nantes.fr/iutna.info2.r305/proj/internal/app/server"
 )
 
-func parseArgs() (port *string) {
+func parseArgs() (port *string, controlPort *string) {
 
 	logLevel := flag.Bool("d", false, "enable debug log level")
 	port = flag.String("p", "3333", "server port (default: 3333)")
+	controlPort = flag.String("cp", "3334", "Port de contrôle")
 
 	flag.Parse()
 
@@ -23,6 +24,6 @@ func parseArgs() (port *string) {
 }
 
 func main() {
-	port := parseArgs()
-	server.RunServer(port)
+	port, controlPort := parseArgs()
+	server.RunServer(port, controlPort)
 }

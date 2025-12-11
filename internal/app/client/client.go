@@ -2,6 +2,7 @@ package client
 
 import (
 	"bufio"
+	"context"
 	"fmt"
 	"io"
 	"log"
@@ -9,13 +10,14 @@ import (
 	"net"
 	"os"
 	"strings"
-	"context"
 
 	p "gitlab.univ-nantes.fr/iutna.info2.r305/proj/internal/pkg/proto"
 )
+
 var listeMessage = []string{"Historique des messgaes : \n"}
 
 func Run(remote string) {
+	log.Println(remote)
 
 	c, err := net.Dial("tcp", remote)
 	if err != nil {
@@ -38,7 +40,7 @@ func RunClient(conn net.Conn) {
 
 	// Étape 1 : Attendre le message "hello" du serveur
 	msg, err := p.Receive_message(reader)
-	listeMessage = append(listeMessage,"received message :", msg)
+	listeMessage = append(listeMessage, "received message :", msg)
 	if err != nil {
 		log.Println("Erreur lors de la réception de 'hello' ou déconnexion:", err)
 		return
@@ -49,7 +51,7 @@ func RunClient(conn net.Conn) {
 	}
 
 	// Étape 2 : Le client répond "start"
-	listeMessage = append(listeMessage,"sent message :", "start \n")
+	listeMessage = append(listeMessage, "sent message :", "start \n")
 	if err := p.Send_message(writer, "start"); err != nil {
 		log.Println("Erreur lors de l'envoi de 'start':", err)
 		return
@@ -57,7 +59,7 @@ func RunClient(conn net.Conn) {
 
 	// Étape 3 : Attendre le message "ok" du serveur
 	msg, err = p.Receive_message(reader)
-	listeMessage = append(listeMessage,"received message :", msg)
+	listeMessage = append(listeMessage, "received message :", msg)
 	if err != nil {
 		log.Println("Erreur lors de la réception de 'ok' ou déconnexion:", err)
 		return
@@ -86,14 +88,14 @@ func RunClient(conn net.Conn) {
 			ListClient(writer, reader)
 		} else if strings.ToUpper(split[0]) == "TERMINATE" {
 			TerminateClient(writer, reader)
-		}  else if strings.ToUpper(split[0]) == "MESSAGES" && slog.Default().Enabled(context.Background(), slog.LevelDebug) {
+		} else if strings.ToUpper(split[0]) == "MESSAGES" && slog.Default().Enabled(context.Background(), slog.LevelDebug) {
 			log.Println(listeMessage)
 			if err := p.Send_message(writer, "messages"); err != nil {
 				log.Println("Erreur lors de l'envoi de 'end':", err)
 				continue
 			}
 		} else {
-			listeMessage = append(listeMessage,"sent message :", "Unknown \n")
+			listeMessage = append(listeMessage, "sent message :", "Unknown \n")
 			if err := p.Send_message(writer, "Unknown"); err != nil {
 				log.Println("Erreur lors de l'envoi de 'unknown':", err)
 				continue
@@ -102,7 +104,7 @@ func RunClient(conn net.Conn) {
 	}
 
 	// Étape 5 : Le client répond "end"
-	listeMessage = append(listeMessage,"sent message :", "end \n")
+	listeMessage = append(listeMessage, "sent message :", "end \n")
 	if err := p.Send_message(writer, "end"); err != nil {
 		log.Println("Erreur lors de l'envoi de 'end':", err)
 		return
@@ -110,7 +112,7 @@ func RunClient(conn net.Conn) {
 
 	// Étape 6 : Attendre le message "ok" final du serveur
 	msg, err = p.Receive_message(reader)
-	listeMessage = append(listeMessage,"received message :", msg)
+	listeMessage = append(listeMessage, "received message :", msg)
 	if err != nil {
 		// La déconnexion immédiate du serveur après l'envoi du "ok" est possible
 		if err != net.ErrClosed && err != io.EOF {
@@ -130,14 +132,14 @@ func RunClient(conn net.Conn) {
 }
 
 func Getclient(line string, splitGET []string, conn net.Conn, writer *bufio.Writer, reader *bufio.Reader) {
-	listeMessage = append(listeMessage,"sent message :", line, "\n")
+	listeMessage = append(listeMessage, "sent message :", line, "\n")
 	if err := p.Send_message(writer, line); err != nil {
 		log.Println("Erreur lors de l'envoi de la commande:", err)
 		return
 	}
 	// Attend la réponse du serveur
 	var response, err = p.Receive_message(reader)
-	listeMessage = append(listeMessage,"received message :", response)
+	listeMessage = append(listeMessage, "received message :", response)
 	if err != nil {
 		log.Println("Erreur lors de la réception de la réponse:", err)
 		return
@@ -150,7 +152,7 @@ func Getclient(line string, splitGET []string, conn net.Conn, writer *bufio.Writ
 		log.Println("Fichier introuvable sur le serveur")
 
 		// Envoie "OK" pour confirmer la réception de FileUnknown
-		listeMessage = append(listeMessage,"sent message :", "OK \n")
+		listeMessage = append(listeMessage, "sent message :", "OK \n")
 		if err := p.Send_message(writer, "OK"); err != nil {
 			log.Println("Erreur lors de l'envoi de 'OK':", err)
 			return
@@ -160,7 +162,7 @@ func Getclient(line string, splitGET []string, conn net.Conn, writer *bufio.Writ
 		// Le serveur va envoyer le fichier
 		// Lire tout le contenu
 		data, err := p.Receive_message(reader)
-		listeMessage = append(listeMessage,"received message :", data)
+		listeMessage = append(listeMessage, "received message :", data)
 		if err != nil {
 			log.Println("Erreur lors de la lecture du fichier:", err)
 			return
@@ -177,7 +179,7 @@ func Getclient(line string, splitGET []string, conn net.Conn, writer *bufio.Writ
 		log.Printf("Contenu du fichier '%s':\n%s\n", splitGET[1], string(data))
 
 		// Envoie "OK" pour confirmer la bonne réception
-		listeMessage = append(listeMessage,"sent message :", "OK \n")
+		listeMessage = append(listeMessage, "sent message :", "OK \n")
 		if err := p.Send_message(writer, "OK"); err != nil {
 			log.Println("Erreur lors de l'envoi de 'OK':", err)
 			return
@@ -188,14 +190,14 @@ func Getclient(line string, splitGET []string, conn net.Conn, writer *bufio.Writ
 }
 
 func ListClient(writer *bufio.Writer, reader *bufio.Reader) {
-	listeMessage = append(listeMessage,"sent message :", "List \n")
+	listeMessage = append(listeMessage, "sent message :", "List \n")
 	if err := p.Send_message(writer, "List"); err != nil {
 		log.Println("Erreur lors de l'envoi de la commande:", err)
 		return
 	}
 	// Attend la réponse du serveur
 	var response, err = p.Receive_message(reader)
-	listeMessage = append(listeMessage,"received message :", response)
+	listeMessage = append(listeMessage, "received message :", response)
 	if err != nil {
 		log.Println("Erreur lors de la réception de la réponse:", err)
 		return
@@ -205,13 +207,13 @@ func ListClient(writer *bufio.Writer, reader *bufio.Reader) {
 	if response == "Start" {
 		// Le serveur va envoyer le fichier
 		// Lire tout le contenu
-		listeMessage = append(listeMessage,"sent message :", "OK \n")
+		listeMessage = append(listeMessage, "sent message :", "OK \n")
 		if err := p.Send_message(writer, "OK"); err != nil {
 			log.Println("Erreur lors de l'envoi de 'OK':", err)
 			return
 		}
 		data, err := p.Receive_message(reader)
-		listeMessage = append(listeMessage,"received message :", data)
+		listeMessage = append(listeMessage, "received message :", data)
 		if err != nil {
 			log.Println("Erreur lors de la lecture du fichier:", err)
 			return
@@ -222,7 +224,7 @@ func ListClient(writer *bufio.Writer, reader *bufio.Reader) {
 		}
 	}
 
-	listeMessage = append(listeMessage,"sent message :", "ok \n")
+	listeMessage = append(listeMessage, "sent message :", "ok \n")
 	if err := p.Send_message(writer, "ok"); err != nil {
 		log.Println("Erreur lors de l'envoi de la commande:", err)
 		return
@@ -230,14 +232,14 @@ func ListClient(writer *bufio.Writer, reader *bufio.Reader) {
 }
 
 func TerminateClient(writer *bufio.Writer, reader *bufio.Reader) {
-	listeMessage = append(listeMessage,"sent message :", "Terminate \n")
+	listeMessage = append(listeMessage, "sent message :", "Terminate \n")
 	if err := p.Send_message(writer, "Terminate"); err != nil {
 		log.Println("Erreur lors de l'envoi de la commande:", err)
 		return
 	}
 	for {
 		rep, err := p.Receive_message(reader)
-		listeMessage = append(listeMessage,"received message :", rep)
+		listeMessage = append(listeMessage, "received message :", rep)
 		if err != nil {
 			log.Println("Erreur lors de la réception de la réponse:", err)
 			return
