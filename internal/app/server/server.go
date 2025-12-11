@@ -3,6 +3,7 @@ package server
 import (
 	"bufio"
 	"context"
+	"fmt"
 	"log"
 	"log/slog"
 	"net"
@@ -208,7 +209,7 @@ func HandleClient(conn net.Conn) {
 				}
 				return
 			} else if cleanedMsg == "messages" {
-				log.Println(listeMessage)
+				fmt.Println(strings.Trim(fmt.Sprint(listeMessage), "[]"))
 			} else {
 				// Message inconnu : log, informer le client et continuer la connexion
 				log.Println("Message inattendu du client:", cleanedMsg)

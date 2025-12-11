@@ -16,6 +16,7 @@ func parseArgs() (remote string) {
 	if *dFlag {
 		slog.SetLogLoggerLevel(slog.LevelDebug)
 		slog.Debug("Set logging level to debug")
+		slog.Debug("type 'MESSAGES' for history of messages")
 	}
 	port := *pFlag
 
