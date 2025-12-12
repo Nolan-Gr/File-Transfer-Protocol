@@ -80,7 +80,7 @@ func RunClient(conn net.Conn) {
 
 	// Étape 4: le client entre ce qu'il souhaite dans le terminal
 	for {
-		fmt.Print("\nEntrez une commande à envoyer au serveur (ou 'end' pour terminer) : ")
+		fmt.Print("\nVous êtes dans ", posActuelle, "\nEntrez une commande à envoyer au serveur (ou 'end' pour terminer) : ")
 		line, _ := reader2.ReadString('\n')
 		line = strings.TrimSpace(line)
 
@@ -138,6 +138,16 @@ func RunClient(conn net.Conn) {
 		} else if command == "TREE" {
 			split = append(split, posActuelle)
 			treeClient(split, writer, reader)
+			// Ne pas envoyer de message au serveur pour cette commande locale
+
+		} else if command == "GOTO" {
+			split = append(split, posActuelle)
+			if split[1] == ".." {
+				posActuelle = GOTOClient(posActuelle, split, writer, reader)
+			} else {
+				posActuelle = posActuelle + "/" + GOTOClient(posActuelle, split, writer, reader)
+			}
+			log.Println(posActuelle)
 			// Ne pas envoyer de message au serveur pour cette commande locale
 
 		} else {
@@ -378,13 +388,14 @@ func TerminateClient(writer *bufio.Writer, reader *bufio.Reader) {
 }
 
 func treeClient(split []string, writer *bufio.Writer, reader *bufio.Reader) {
-	listeMessage = append(listeMessage, "sent message :", "List \n")
+	listeMessage = append(listeMessage, "sent message :", "tree \n")
 	if err := p.Send_message(writer, "tree "+split[1]); err != nil {
 		log.Println("Erreur lors de l'envoi de la commande:", err)
 		return
 	}
 	// Attend la réponse du serveur
 	var response, err = p.Receive_message(reader)
+	log.Println("response", response)
 	listeMessage = append(listeMessage, "received message :", response)
 	if err != nil {
 		log.Println("Erreur lors de la réception de la réponse:", err)
@@ -408,6 +419,11 @@ func treeClient(split []string, writer *bufio.Writer, reader *bufio.Reader) {
 			return
 		}
 		var datas = strings.Split(data, "--")
+		if split[1] == "Docs" {
+			log.Println("vous êtes à la racine")
+		} else {
+			log.Println("vous êtes dans", split[1])
+		}
 		log.Println("\n=== Liste des fichiers disponibles ===")
 		for _, item := range datas {
 			if strings.TrimSpace(item) != "" {
@@ -422,4 +438,41 @@ func treeClient(split []string, writer *bufio.Writer, reader *bufio.Reader) {
 		log.Println("Erreur lors de l'envoi de la commande:", err)
 		return
 	}
+}
+
+func GOTOClient(posActuelle string, split []string, writer *bufio.Writer, reader *bufio.Reader) string {
+	listeMessage = append(listeMessage, "sent message :", "GOTO \n")
+	if err := p.Send_message(writer, "GOTO "+split[1]+" "+split[2]); err != nil {
+		log.Println("Erreur lors de l'envoi de la commande:", err)
+		return ""
+	}
+
+	var response, err = p.Receive_message(reader)
+	log.Println("response", response)
+	listeMessage = append(listeMessage, "received message :", response)
+	if err != nil {
+		log.Println("Erreur lors de la réception de la réponse:", err)
+		return ""
+	}
+	response = strings.TrimSpace(response)
+
+	if response == "Start" {
+		posActuelle = split[1]
+	} else if response == "NO!" {
+		log.Println("vous êtes déjà dans ce fichier")
+	} else if response == "back" {
+		var index = ParcourPath(split)
+		posActuelle = split[2][0:index]
+	}
+	return posActuelle
+}
+
+func ParcourPath(split []string) int {
+	var posTab []int
+	for i, pos := range split[2] {
+		if pos == '/' {
+			posTab = append(posTab, i)
+		}
+	}
+	return posTab[len(posTab)-1]
 }

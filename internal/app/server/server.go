@@ -275,13 +275,42 @@ func HandleClient(conn net.Conn) {
 				}
 
 			} else if commGet[0] == "tree" {
-				var dir, err = os.ReadDir("Docs")
 				if err != nil {
 					log.Println(err)
 				}
-				var list, _ = ParcourFolder(dir, "", 0)
-				p.Send_message(writer, list)
 				tree(writer, reader)
+			} else if commGet[0] == "GOTO" {
+				if err != nil {
+					log.Println(err)
+				}
+
+				if commGet[1] == ".." {
+					addToListeMessage("sent message :", "back", " \n")
+					if err := p.Send_message(writer, "back"); err != nil {
+						log.Println("Erreur lors de l'envoi de 'Start':", err)
+						return
+					}
+				} else if commGet[2] != commGet[1] {
+					var fichiers, err = os.ReadDir(commGet[2])
+					if err != nil {
+						log.Println(err)
+					}
+					for _, fichier := range fichiers {
+						if fichier.Name() == commGet[1] && fichier.IsDir() {
+							addToListeMessage("sent message :", "Start \n")
+							if err := p.Send_message(writer, "Start"); err != nil {
+								log.Println("Erreur lors de l'envoi de 'Start':", err)
+								return
+							}
+						}
+					}
+				} else {
+					addToListeMessage("sent message :", "NO! \n")
+					if err := p.Send_message(writer, "NO!"); err != nil {
+						log.Println("Erreur lors de l'envoi de 'Start':", err)
+						return
+					}
+				}
 			} else if cleanedMsg == "end" {
 				addToListeMessage("sent message :", "ok \n")
 				if err := p.Send_message(writer, "ok"); err != nil {
@@ -705,9 +734,10 @@ func tree(writer *bufio.Writer, reader *bufio.Reader) {
 		log.Println("Erreur lors de la lecture du fichier:", err)
 		return
 	} else if strings.TrimSpace(data) == "OK" {
-		var templist, size = ParcourFolder(fichiers, list, size)
+		var templist, tempsize = ParcourFolder(fichiers, list, size)
 		log.Println("list : ", size, templist)
 		list = list + templist
+		size = size + tempsize
 		if err != nil {
 			log.Fatal(err)
 		}
