@@ -202,7 +202,7 @@ func runControlServer(controlPort *string) {
 			continue
 		}
 		slog.Info("Incoming connection from " + c.RemoteAddr().String())
-		HandleControlClient(c)
+		go HandleControlClient(c)
 	}
 }
 
@@ -219,15 +219,23 @@ func HandleClient(conn net.Conn) {
 	writer := bufio.NewWriter(conn)
 
 	addToListeMessage("sent message :", "hello \n")
-	if err := p.Send_message(writer, "hello"); err != nil {
-		log.Println("Erreur lors de l'envoi de 'hello':", err)
+	if err := p.Send_message(conn, writer, "hello"); err != nil {
+		if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
+			log.Println("Timeout lors de l'envoi de 'hello':", err)
+		} else {
+			log.Println("Erreur lors de l'envoi de 'hello':", err)
+		}
 		return
 	}
 
 	for {
-		msg, err := p.Receive_message(reader)
+		msg, err := p.Receive_message(conn, reader)
 		if err != nil {
-			log.Println("Client déconnecté ou erreur de lecture:", err)
+			if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
+				log.Println("Timeout lors de la réception d'un message client:", err)
+			} else {
+				log.Println("Client déconnecté ou erreur de lecture:", err)
+			}
 			return
 		}
 
@@ -240,45 +248,67 @@ func HandleClient(conn net.Conn) {
 			log.Println("cleanedMessage :", cleanedMsg)
 			if cleanedMsg == "start" {
 				addToListeMessage("sent message :", "ok \n")
-				if err := p.Send_message(writer, "ok"); err != nil {
-					log.Println("Erreur lors de l'envoi de 'ok' après 'start':", err)
+				if err := p.Send_message(conn, writer, "ok"); err != nil {
+					if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
+						log.Println("Timeout lors de l'envoi de 'ok' après 'start':", err)
+					} else {
+						log.Println("Erreur lors de l'envoi de 'ok' après 'start':", err)
+					}
 					return
 				}
 
 			} else if len(commGet) == 2 && commGet[0] == "List" {
 				nbOp := incrementerOperations()
 				log.Println("Commande LIST reçue, opérations en cours:", nbOp)
-				ListServer(commGet, writer, reader)
+				if !ListServer(conn, commGet, writer, reader) {
+					decrementerOperations()
+					return
+				}
 				nbOp = decrementerOperations()
 				log.Println("Commande LIST terminée, opérations restantes:", nbOp)
 
 			} else if len(commGet) == 3 && commGet[0] == "GET" {
 				nbOp := incrementerOperations()
 				log.Println("Commande GET reçue pour:", commGet[1], ", opérations en cours:", nbOp)
-				Getserver(commGet, writer, reader)
+				if !Getserver(conn, commGet, writer, reader) {
+					decrementerOperations()
+					return
+				}
 				nbOp = decrementerOperations()
 				log.Println("Commande GET terminée, opérations restantes:", nbOp)
 
 			} else if cleanedMsg == "Unknown" {
 				addToListeMessage("sent message :", "Commande inconnue. Veuillez entrer HELP pour avoir la liste de commande. \n")
-				if err := p.Send_message(writer, "Commande inconnue. Veuillez entrer HELP pour avoir la liste de commande."); err != nil {
-					log.Println("Erreur lors de l'envoi du message de terminaison:", err)
+				if err := p.Send_message(conn, writer, "Commande inconnue. Veuillez entrer HELP pour avoir la liste de commande."); err != nil {
+					if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
+						log.Println("Timeout lors de l'envoi du message unknown:", err)
+					} else {
+						log.Println("Erreur lors de l'envoi du message de terminaison:", err)
+					}
+					return
 				}
 				log.Println("Commande inconnue. Veuillez entrer HELP pour avoir la liste de commande.")
 
 			} else if cleanedMsg == "Help" {
 				helpMessage := "Commandes disponibles : LIST, GET <filename>, HELP, END"
 				addToListeMessage("sent message :", helpMessage+" \n")
-				if err := p.Send_message(writer, helpMessage); err != nil {
-					log.Println("Erreur lors de l'envoi de 'help':", err)
+				if err := p.Send_message(conn, writer, helpMessage); err != nil {
+					if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
+						log.Println("Timeout lors de l'envoi de 'help':", err)
+					} else {
+						log.Println("Erreur lors de l'envoi de 'help':", err)
+					}
 					return
 				}
 
 			} else if commGet[0] == "tree" {
 				if err != nil {
 					log.Println(err)
+					continue
 				}
-				tree(writer, reader)
+				if !tree(conn, writer, reader) {
+					return
+				}
 			} else if commGet[0] == "GOTO" {
 				if err != nil {
 					log.Println(err)
@@ -286,7 +316,7 @@ func HandleClient(conn net.Conn) {
 
 				if commGet[1] == ".." {
 					addToListeMessage("sent message :", "back", " \n")
-					if err := p.Send_message(writer, "back"); err != nil {
+					if err := p.Send_message(conn, writer, "back"); err != nil {
 						log.Println("Erreur lors de l'envoi de 'Start':", err)
 						return
 					}
@@ -298,7 +328,7 @@ func HandleClient(conn net.Conn) {
 					for _, fichier := range fichiers {
 						if fichier.Name() == commGet[1] && fichier.IsDir() {
 							addToListeMessage("sent message :", "Start \n")
-							if err := p.Send_message(writer, "Start"); err != nil {
+							if err := p.Send_message(conn, writer, "Start"); err != nil {
 								log.Println("Erreur lors de l'envoi de 'Start':", err)
 								return
 							}
@@ -306,29 +336,39 @@ func HandleClient(conn net.Conn) {
 					}
 				} else {
 					addToListeMessage("sent message :", "NO! \n")
-					if err := p.Send_message(writer, "NO!"); err != nil {
+					if err := p.Send_message(conn, writer, "NO!"); err != nil {
 						log.Println("Erreur lors de l'envoi de 'Start':", err)
 						return
 					}
 				}
 			} else if cleanedMsg == "end" {
 				addToListeMessage("sent message :", "ok \n")
-				if err := p.Send_message(writer, "ok"); err != nil {
-					log.Println("Erreur lors de l'envoi de 'ok' après 'end':", err)
+				if err := p.Send_message(conn, writer, "ok"); err != nil {
+					if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
+						log.Println("Timeout lors de l'envoi de 'ok' après 'end':", err)
+					} else {
+						log.Println("Erreur lors de l'envoi de 'ok' après 'end':", err)
+					}
 				}
 				return
+
 			} else if cleanedMsg == "messages" {
 				listeMessageMutex.Lock()
 				fmt.Println(strings.Trim(fmt.Sprint(listeMessage), "[]"))
 				listeMessageMutex.Unlock()
+
 			} else {
 				log.Println("Message inattendu du client:", cleanedMsg)
 				continue
 			}
 		} else {
-			addToListeMessage("sent message :", "ok \n")
-			if err := p.Send_message(writer, "Server terminating, connection closing."); err != nil {
-				log.Println("Erreur lors de l'envoi du message de terminaison:", err)
+			addToListeMessage("sent message :", "Server terminating, connection closing. \n")
+			if err := p.Send_message(conn, writer, "Server terminating, connection closing."); err != nil {
+				if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
+					log.Println("Timeout lors de l'envoi du message de terminaison:", err)
+				} else {
+					log.Println("Erreur lors de l'envoi du message de terminaison:", err)
+				}
 			}
 			return
 		}
@@ -352,15 +392,23 @@ func HandleControlClient(conn net.Conn) {
 	writer := bufio.NewWriter(conn)
 
 	addToListeMessage("sent message :", "hello \n")
-	if err := p.Send_message(writer, "hello"); err != nil {
-		log.Println("Erreur lors de l'envoi de 'hello':", err)
+	if err := p.Send_message(conn, writer, "hello"); err != nil {
+		if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
+			log.Println("Timeout lors de l'envoi de 'hello':", err)
+		} else {
+			log.Println("Erreur lors de l'envoi de 'hello':", err)
+		}
 		return
 	}
 
 	for {
-		msg, err := p.Receive_message(reader)
+		msg, err := p.Receive_message(conn, reader)
 		if err != nil {
-			log.Println("Client déconnecté ou erreur de lecture:", err)
+			if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
+				log.Println("Timeout lors de la réception d'un message client control:", err)
+			} else {
+				log.Println("Client déconnecté ou erreur de lecture:", err)
+			}
 			return
 		}
 
@@ -373,15 +421,22 @@ func HandleControlClient(conn net.Conn) {
 			log.Println("cleanedMessage :", cleanedMsg)
 			if cleanedMsg == "start" {
 				addToListeMessage("sent message :", "ok \n")
-				if err := p.Send_message(writer, "ok"); err != nil {
-					log.Println("Erreur lors de l'envoi de 'ok' après 'start':", err)
+				if err := p.Send_message(conn, writer, "ok"); err != nil {
+					if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
+						log.Println("Timeout lors de l'envoi de 'ok' après 'start':", err)
+					} else {
+						log.Println("Erreur lors de l'envoi de 'ok' après 'start':", err)
+					}
 					return
 				}
 
 			} else if len(commHideReveal) == 2 && commHideReveal[0] == "List" {
 				nbOp := incrementerOperations()
 				log.Println("Commande LIST reçue, opérations en cours:", nbOp)
-				ListServer(commHideReveal, writer, reader)
+				if !ListServer(conn, commHideReveal, writer, reader) {
+					decrementerOperations()
+					return
+				}
 				nbOp = decrementerOperations()
 				log.Println("Commande LIST terminée, opérations restantes:", nbOp)
 
@@ -392,44 +447,63 @@ func HandleControlClient(conn net.Conn) {
 				clientTerminant.writer = writer
 				clientTerminantMutex.Unlock()
 				// Lancer la terminaison dans une goroutine
-				go TerminateServer()
+				go TerminateServer(conn)
 				// Attendre que le serveur se termine
 				<-shutdownChan
 				return
 
 			} else if cleanedMsg == "Unknown" {
 				addToListeMessage("sent message :", "Commande inconnue. Veuillez entrer HELP pour avoir la liste de commande. \n")
-				if err := p.Send_message(writer, "Commande inconnue. Veuillez entrer HELP pour avoir la liste de commande."); err != nil {
-					log.Println("Erreur lors de l'envoi du message de terminaison:", err)
+				if err := p.Send_message(conn, writer, "Commande inconnue. Veuillez entrer HELP pour avoir la liste de commande."); err != nil {
+					if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
+						log.Println("Timeout lors de l'envoi du message unknown:", err)
+					} else {
+						log.Println("Erreur lors de l'envoi du message de terminaison:", err)
+					}
+					return
 				}
 				log.Println("Commande inconnue. Veuillez entrer HELP pour avoir la liste de commande.")
 
 			} else if cleanedMsg == "Help" {
 				helpMessage := "Commandes disponibles : LIST, HIDE, REVEAL, HELP, END et TERMINATE	"
 				addToListeMessage("sent message :", helpMessage+" \n")
-				if err := p.Send_message(writer, helpMessage); err != nil {
-					log.Println("Erreur lors de l'envoi de 'help':", err)
+				if err := p.Send_message(conn, writer, helpMessage); err != nil {
+					if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
+						log.Println("Timeout lors de l'envoi de 'help':", err)
+					} else {
+						log.Println("Erreur lors de l'envoi de 'help':", err)
+					}
 					return
 				}
 
 			} else if len(commHideReveal) == 3 && commHideReveal[0] == "HIDE" {
 				nbOp := incrementerOperations()
 				log.Println("Commande HIDE reçue, opérations en cours:", nbOp)
-				HIDE(commHideReveal, writer, reader)
+				if !HIDE(conn, commHideReveal, writer, reader) {
+					decrementerOperations()
+					return
+				}
 				nbOp = decrementerOperations()
 				log.Println("Commande HIDE terminée, opérations restantes:", nbOp)
 
 			} else if len(commHideReveal) == 3 && commHideReveal[0] == "REVEAL" {
 				nbOp := incrementerOperations()
 				log.Println("Commande REVEAL reçue, opérations en cours:", nbOp)
-				REVEAL(commHideReveal, writer, reader)
+				if !REVEAL(conn, commHideReveal, writer, reader) {
+					decrementerOperations()
+					return
+				}
 				nbOp = decrementerOperations()
 				log.Println("Commande REVEAL terminée, opérations restantes:", nbOp)
 
 			} else if cleanedMsg == "end" {
 				addToListeMessage("sent message :", "ok \n")
-				if err := p.Send_message(writer, "ok"); err != nil {
-					log.Println("Erreur lors de l'envoi de 'ok' après 'end':", err)
+				if err := p.Send_message(conn, writer, "ok"); err != nil {
+					if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
+						log.Println("Timeout lors de l'envoi de 'ok' après 'end':", err)
+					} else {
+						log.Println("Erreur lors de l'envoi de 'ok' après 'end':", err)
+					}
 				}
 				return
 
@@ -442,7 +516,7 @@ func HandleControlClient(conn net.Conn) {
 				if err != nil {
 					log.Println(err)
 				}
-				tree(writer, reader)
+				tree(conn, writer, reader)
 			} else if commHideReveal[0] == "GOTO" {
 				if err != nil {
 					log.Println(err)
@@ -450,7 +524,7 @@ func HandleControlClient(conn net.Conn) {
 
 				if commHideReveal[1] == ".." {
 					addToListeMessage("sent message :", "back", " \n")
-					if err := p.Send_message(writer, "back"); err != nil {
+					if err := p.Send_message(conn, writer, "back"); err != nil {
 						log.Println("Erreur lors de l'envoi de 'Start':", err)
 						return
 					}
@@ -462,7 +536,7 @@ func HandleControlClient(conn net.Conn) {
 					for _, fichier := range fichiers {
 						if fichier.Name() == commHideReveal[1] && fichier.IsDir() {
 							addToListeMessage("sent message :", "Start \n")
-							if err := p.Send_message(writer, "Start"); err != nil {
+							if err := p.Send_message(conn, writer, "Start"); err != nil {
 								log.Println("Erreur lors de l'envoi de 'Start':", err)
 								return
 							}
@@ -470,7 +544,7 @@ func HandleControlClient(conn net.Conn) {
 					}
 				} else {
 					addToListeMessage("sent message :", "NO! \n")
-					if err := p.Send_message(writer, "NO!"); err != nil {
+					if err := p.Send_message(conn, writer, "NO!"); err != nil {
 						log.Println("Erreur lors de l'envoi de 'Start':", err)
 						return
 					}
@@ -480,9 +554,13 @@ func HandleControlClient(conn net.Conn) {
 				continue
 			}
 		} else {
-			addToListeMessage("sent message :", "ok \n")
-			if err := p.Send_message(writer, "Server terminating, connection closing."); err != nil {
-				log.Println("Erreur lors de l'envoi du message de terminaison:", err)
+			addToListeMessage("sent message :", "Server terminating, connection closing. \n")
+			if err := p.Send_message(conn, writer, "Server terminating, connection closing."); err != nil {
+				if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
+					log.Println("Timeout lors de l'envoi du message de terminaison:", err)
+				} else {
+					log.Println("Erreur lors de l'envoi du message de terminaison:", err)
+				}
 			}
 			return
 		}
@@ -507,11 +585,11 @@ func ClientLogOut(conn net.Conn) {
 	}
 }
 
-func Getserver(commGet []string, writer *bufio.Writer, reader *bufio.Reader) {
+func Getserver(conn net.Conn, commGet []string, writer *bufio.Writer, reader *bufio.Reader) bool {
 	var fichiers, err = os.ReadDir(commGet[2])
 	if err != nil {
 		log.Println("Erreur lecture dossier Docs:", err)
-		return
+		return false
 	}
 	var found = false
 
@@ -522,40 +600,66 @@ func Getserver(commGet []string, writer *bufio.Writer, reader *bufio.Reader) {
 			var path = filepath.Join(commGet[2], fichier.Name())
 
 			addToListeMessage("sent message :", "Start \n")
-			if err := p.Send_message(writer, "Start"); err != nil {
-				log.Println("Erreur lors de l'envoi de 'Start':", err)
-				return
+			if err := p.Send_message(conn, writer, "Start"); err != nil {
+				if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
+					log.Println("Timeout lors de l'envoi de 'Start':", err)
+				} else {
+					log.Println("Erreur lors de l'envoi de 'Start':", err)
+				}
+				return false
 			}
+
 			var data, err = os.ReadFile(path)
 			if err != nil {
 				log.Println("Ne peut pas lire le contenu du fichier :", err)
-				return
+				return false
 			}
+
 			addToListeMessage("sent message :", string(data), "\n")
-			err = p.Send_message(writer, string(data))
+			err = p.Send_message(conn, writer, string(data))
 			if err != nil {
-				log.Println("N'a pas pû transférer le fichier :", err)
+				if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
+					log.Println("Timeout lors du transfert du fichier:", err)
+				} else {
+					log.Println("N'a pas pû transférer le fichier :", err)
+				}
+				return false
 			}
 			break
 		}
 	}
+
 	if !found {
 		log.Println("Fichier non trouvé:", commGet[1])
 		addToListeMessage("sent message :", "FileUnknown \n")
-		if err := p.Send_message(writer, "FileUnknown"); err != nil {
-			log.Println("Erreur lors de l'envoi de 'FileUnknown':", err)
-			return
+		if err := p.Send_message(conn, writer, "FileUnknown"); err != nil {
+			if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
+				log.Println("Timeout lors de l'envoi de 'FileUnknown':", err)
+			} else {
+				log.Println("Erreur lors de l'envoi de 'FileUnknown':", err)
+			}
+			return false
 		}
 	}
-	var response, _ = p.Receive_message(reader)
+
+	var response, err2 = p.Receive_message(conn, reader)
+	if err2 != nil {
+		if netErr, ok := err2.(net.Error); ok && netErr.Timeout() {
+			log.Println("Timeout lors de la réception de la confirmation GET:", err2)
+		} else {
+			log.Println("Erreur lors de la réception de la confirmation:", err2)
+		}
+		return false
+	}
 	log.Println("Réponse du client:", response)
+	return true
 }
 
-func HIDE(commHideReveal []string, writer *bufio.Writer, reader *bufio.Reader) {
+func HIDE(conn net.Conn, commHideReveal []string, writer *bufio.Writer, reader *bufio.Reader) bool {
 	var fichiers, err = os.ReadDir(commHideReveal[2])
 	if err != nil {
 		log.Println("Erreur lecture dossier:", err)
-		return
+		return false
 	}
 	var found = false
 
@@ -569,33 +673,44 @@ func HIDE(commHideReveal []string, writer *bufio.Writer, reader *bufio.Reader) {
 			err := os.Rename(oldPath, newPath)
 			if err != nil {
 				log.Println("Ne peut pas rename le fichier :", err)
-				return
+				return false
 			}
 			log.Println("Le fichier a bien été HIDE")
 
 			addToListeMessage("sent message :", "OK \n")
-			if err := p.Send_message(writer, "OK"); err != nil {
-				log.Println("Erreur lors de l'envoi de 'OK':", err)
-				return
+			if err := p.Send_message(conn, writer, "OK"); err != nil {
+				if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
+					log.Println("Timeout lors de l'envoi de 'OK' HIDE:", err)
+				} else {
+					log.Println("Erreur lors de l'envoi de 'OK':", err)
+				}
+				return false
 			}
 			break
 		}
 	}
+
 	if !found {
 		log.Println("Fichier non trouvé:", commHideReveal[1])
 		addToListeMessage("sent message :", "FileUnknown \n")
-		if err := p.Send_message(writer, "FileUnknown"); err != nil {
-			log.Println("Erreur lors de l'envoi de 'FileUnknown':", err)
-			return
+		if err := p.Send_message(conn, writer, "FileUnknown"); err != nil {
+			if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
+				log.Println("Timeout lors de l'envoi de 'FileUnknown' HIDE:", err)
+			} else {
+				log.Println("Erreur lors de l'envoi de 'FileUnknown':", err)
+			}
+			return false
 		}
 	}
+
+	return true
 }
 
-func REVEAL(commHideReveal []string, writer *bufio.Writer, reader *bufio.Reader) {
+func REVEAL(conn net.Conn, commHideReveal []string, writer *bufio.Writer, reader *bufio.Reader) bool {
 	var fichiers, err = os.ReadDir(commHideReveal[2])
 	if err != nil {
 		log.Println("Erreur lecture dossier :", err)
-		return
+		return false
 	}
 	var found = false
 
@@ -609,62 +724,98 @@ func REVEAL(commHideReveal []string, writer *bufio.Writer, reader *bufio.Reader)
 			err := os.Rename(oldPath, newPath)
 			if err != nil {
 				log.Println("Ne peut pas rename le fichier :", err)
-				return
+				return false
 			}
 			log.Println("Le fichier a bien été REVEAL")
 
 			addToListeMessage("sent message :", "OK \n")
-			if err := p.Send_message(writer, "OK"); err != nil {
-				log.Println("Erreur lors de l'envoi de 'OK':", err)
-				return
+			if err := p.Send_message(conn, writer, "OK"); err != nil {
+				if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
+					log.Println("Timeout lors de l'envoi de 'OK' REVEAL:", err)
+				} else {
+					log.Println("Erreur lors de l'envoi de 'OK':", err)
+				}
+				return false
 			}
 			break
 		}
 	}
+
 	if !found {
 		log.Println("Fichier non trouvé:", commHideReveal[1])
 		addToListeMessage("sent message :", "FileUnknown \n")
-		if err := p.Send_message(writer, "FileUnknown"); err != nil {
-			log.Println("Erreur lors de l'envoi de 'FileUnknown':", err)
-			return
+		if err := p.Send_message(conn, writer, "FileUnknown"); err != nil {
+			if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
+				log.Println("Timeout lors de l'envoi de 'FileUnknown' REVEAL:", err)
+			} else {
+				log.Println("Erreur lors de l'envoi de 'FileUnknown':", err)
+			}
+			return false
 		}
 	}
+
+	return true
 }
 
-func ListServer(commHideReveal []string, writer *bufio.Writer, reader *bufio.Reader) {
+func ListServer(conn net.Conn, commHideReveal []string, writer *bufio.Writer, reader *bufio.Reader) bool {
 	var fichiers, err = os.ReadDir(commHideReveal[1])
 	if err != nil {
 		log.Println("Erreur lecture dossier Docs:", err)
-		return
+		return false
 	}
+
 	var list = ""
 	var size = 0
+
 	addToListeMessage("sent message :", "Start \n")
-	if err := p.Send_message(writer, "Start"); err != nil {
-		log.Println("Erreur lors de l'envoi de 'Start':", err)
-		return
+	if err := p.Send_message(conn, writer, "Start"); err != nil {
+		if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
+			log.Println("Timeout lors de l'envoi de 'Start' LIST:", err)
+		} else {
+			log.Println("Erreur lors de l'envoi de 'Start':", err)
+		}
+		return false
 	}
+
 	log.Println(fichiers)
-	data, err := p.Receive_message(reader)
-	log.Println("data:", data)
+	data, err := p.Receive_message(conn, reader)
 	if err != nil {
-		log.Println("Erreur lors de la lecture du fichier:", err)
-		return
-	} else if strings.TrimSpace(data) == "OK" {
+		if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
+			log.Println("Timeout lors de la réception de la confirmation LIST:", err)
+		} else {
+			log.Println("Erreur lors de la lecture du fichier:", err)
+		}
+		return false
+	}
+	log.Println("data:", data)
+
+	if strings.TrimSpace(data) == "OK" {
 		for _, fichier := range fichiers {
-			fileInfo, err := fichier.Info()
-			if err != nil {
-				log.Println("Erreur lors de la lecture du fichier:", err)
-				return
+			if fichier.Name()[0] != '.' {
+				fileInfo, err := fichier.Info()
+				if err != nil {
+					log.Println("Erreur lors de la lecture du fichier:", err)
+					return false
+				}
+				list = list + " --" + fichier.Name() + " " + strconv.FormatInt(int64(fileInfo.Size()), 10)
+				size = size + 1
 			}
-			list = list + " --" + fichier.Name() + " " + strconv.FormatInt(int64(fileInfo.Size()), 10)
-			size = size + 1
 		}
 	}
+
 	var newlist = "FileCnt : " + strconv.Itoa(size) + list
 	log.Println(newlist)
 	addToListeMessage("sent message :", newlist, "\n")
-	p.Send_message(writer, newlist)
+	if err := p.Send_message(conn, writer, newlist); err != nil {
+		if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
+			log.Println("Timeout lors de l'envoi de la liste:", err)
+		} else {
+			log.Println("Erreur lors de l'envoi de la liste:", err)
+		}
+		return false
+	}
+
+	return true
 }
 
 func ParcourFolder(fichiers []os.DirEntry, list string, size int) (string, int) {
@@ -675,78 +826,87 @@ func ParcourFolder(fichiers []os.DirEntry, list string, size int) (string, int) 
 			return err.Error(), 0
 		}
 		size = size + 1
-
-		if fichier.IsDir() {
-			log.Println(filepath.Join("Docs/", fichier.Name()))
-			var newfichiers, err = os.ReadDir(filepath.Join("Docs/", fichier.Name()))
-			if err != nil {
-				log.Println("Erreur lecture sous-dossier:", err)
-				continue
+		if fichier.Name()[0] != '.' {
+			if fichier.IsDir() {
+				log.Println(filepath.Join("Docs/", fichier.Name()))
+				var newfichiers, err = os.ReadDir(filepath.Join("Docs/", fichier.Name()))
+				if err != nil {
+					log.Println("Erreur lecture sous-dossier:", err)
+					continue
+				}
+				var liste, newsize = ParcourFolder(newfichiers, list, size)
+				size = size + newsize
+				list = list + " --" + fichier.Name() + " " + strconv.FormatInt(int64(fileInfo.Size()), 10) + " -- sous-dossier: " + " [" + liste + "]"
+			} else {
+				list = list + " --" + fichier.Name() + " " + strconv.FormatInt(int64(fileInfo.Size()), 10)
 			}
-			var liste, newsize = ParcourFolder(newfichiers, list, size)
-			size = size + newsize
-			list = list + " --" + fichier.Name() + " " + strconv.FormatInt(int64(fileInfo.Size()), 10) + " -- sous-dossier: " + " [" + liste + "]"
-		} else {
-			list = list + " --" + fichier.Name() + " " + strconv.FormatInt(int64(fileInfo.Size()), 10)
 		}
 	}
 	return list, size
 }
 
-func DebugServer(writer *bufio.Writer, reader *bufio.Reader) {
-	nbOperation := getCompteurOperations()
-	nbClient := getCompteurClient()
-	var list = []string{"Debug :", "Serveur créé à", slog.AnyValue(connectiontime).String(), "nombre d'opérations en cours :", strconv.FormatInt(int64(nbOperation), 10), "nombre de clients connectés :", strconv.FormatInt(int64(nbClient), 10)}
-	slog.Debug(list[0])
-	slog.Debug(list[1] + " " + list[2])
-	slog.Debug(list[3] + " " + list[4])
-	slog.Debug(list[5] + " " + list[6])
-	addToListeMessage("sent message :", " debug \n")
+// Envoie des informations de debug au client (si le niveau de log est debug)
+func DebugServer(writer *bufio.Writer, reader *bufio.Reader) bool {
+	msg := fmt.Sprintf("DebugInfo: clients=%d, operations=%d, uptime=%s",
+		getCompteurClient(),
+		getCompteurOperations(),
+		time.Since(connectiontime).Truncate(time.Second).String())
 
-	var newlist = strings.Join(list, "--")
-	log.Println(newlist)
+	addToListeMessage("sent message :", msg, "\n")
+	if err := p.Send_message(nil, writer, msg); err != nil {
+		log.Println("Erreur lors de l'envoi du message de debug:", err)
+		return false
+	}
+	return true
 }
 
-// Fonction de terminaison unifiée
-func TerminateServer() {
-	log.Println("Démarrage de la procédure de terminaison...")
+// Gère la terminaison propre du serveur
+func TerminateServer(conn net.Conn) {
+	log.Println("Initiation de la terminaison du serveur...")
+	setServerShuttingDown() // Indiquer que le serveur s'arrête
 
-	// Marquer le serveur comme en cours de terminaison
-	setServerShuttingDown()
-
-	// Fermer le canal pour arrêter l'acceptation de nouvelles connexions (une seule fois)
-	shutdownOnce.Do(func() {
-		close(shutdownChan)
-	})
-
-	// Récupérer le client de contrôle de façon thread-safe
 	clientTerminantMutex.Lock()
 	writer := clientTerminant.writer
 	clientTerminantMutex.Unlock()
 
-	// Attendre que toutes les opérations en cours se terminent
+	// Boucle d'attente pour les opérations en cours
 	for {
-		nbOperation := getCompteurOperations()
-		if nbOperation <= 0 {
+		ops := getCompteurOperations()
+		clients := getCompteurClient()
+		// Soustraire le client de contrôle qui a initié la commande
+		clientsApresControle := clients - 1
+
+		if ops == 0 && clientsApresControle == 0 {
 			break
 		}
 
-		message := fmt.Sprintf("Il reste %d opération(s) en cours, attente de la fin...", nbOperation)
-		log.Println(message)
-		addToListeMessage("sent message :", message, "\n")
-		if err := p.Send_message(writer, message); err != nil {
-			log.Println("Erreur lors de l'envoi du message d'attente:", err)
-			break
+		msg := fmt.Sprintf("Opérations en cours : %d, Clients actifs (hors contrôle) : %d. Attente...", ops, clientsApresControle)
+		log.Println(msg)
+
+		addToListeMessage("sent message :", msg, "\n")
+		if err := p.Send_message(conn, writer, msg); err != nil {
+			log.Println("Erreur lors de l'envoi du message d'attente de terminaison:", err)
+			// Continuer même en cas d'erreur d'envoi
 		}
+
 		time.Sleep(1 * time.Second)
 	}
 
-	// Envoyer le message final au client de contrôle
-	addToListeMessage("sent message :", "Terminaison finie, le serveur s'éteint \n")
-	if err := p.Send_message(writer, "Terminaison finie, le serveur s'éteint"); err != nil {
-		log.Println("Erreur lors de l'envoi du message de terminaison:", err)
+	finalMsg := "Terminaison finie, le serveur s'éteint"
+	log.Println(finalMsg)
+	addToListeMessage("sent message :", finalMsg, "\n")
+
+	if err := p.Send_message(conn, writer, finalMsg); err != nil {
+		log.Println("Erreur lors de l'envoi du message final de terminaison:", err)
 	}
 
+	// Fermer le canal de shutdown pour signaler aux listeners de se fermer
+	shutdownOnce.Do(func() {
+		close(shutdownChan)
+	})
+
+	// ClientLogOut sera appelé par le defer de HandleControlClient
+	// après le retour de TerminateServer (suite à la réception du signal)
 	log.Println("Terminaison complète, fermeture du serveur...")
 
 	// Forcer la sortie du programme après un court délai
@@ -754,22 +914,22 @@ func TerminateServer() {
 	os.Exit(0)
 }
 
-func tree(writer *bufio.Writer, reader *bufio.Reader) {
+func tree(conn net.Conn, writer *bufio.Writer, reader *bufio.Reader) bool {
 	log.Println("tree func")
 	var fichiers, err = os.ReadDir("Docs")
 	var list = ""
 	var size = 0
 	listeMessage = append(listeMessage, "sent message :", "Start \n")
-	if err := p.Send_message(writer, "Start"); err != nil {
+	if err := p.Send_message(conn, writer, "Start"); err != nil {
 		log.Println("Erreur lors de l'envoi de 'Start':", err)
-		return
+		return false
 	}
 	log.Println(fichiers)
-	data, err := p.Receive_message(reader)
+	data, err := p.Receive_message(conn, reader)
 	log.Println("data:", data)
 	if err != nil {
 		log.Println("Erreur lors de la lecture du fichier:", err)
-		return
+		return false
 	} else if strings.TrimSpace(data) == "OK" {
 		var templist, tempsize = ParcourFolder(fichiers, list, size)
 		log.Println("list : ", size, templist)
@@ -782,5 +942,6 @@ func tree(writer *bufio.Writer, reader *bufio.Reader) {
 	var newlist = "FileCnt : " + strconv.Itoa(size) + list
 	log.Println(newlist)
 	listeMessage = append(listeMessage, "sent message :", newlist, "\n")
-	p.Send_message(writer, newlist)
+	p.Send_message(conn, writer, newlist)
+	return true
 }

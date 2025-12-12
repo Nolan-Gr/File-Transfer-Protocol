@@ -47,12 +47,17 @@ func RunClient(conn net.Conn) {
 	posActuelle := "Docs"
 
 	// Étape 1 : Attendre le message "hello" du serveur
-	msg, err := p.Receive_message(reader)
-	listeMessage = append(listeMessage, "received message :", msg)
+	msg, err := p.Receive_message(conn, reader)
 	if err != nil {
-		log.Println("Erreur lors de la réception de 'hello' ou déconnexion:", err)
+		if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
+			log.Println("Timeout lors de la réception de 'hello':", err)
+		} else {
+			log.Println("Erreur lors de la réception de 'hello' ou déconnexion:", err)
+		}
 		return
 	}
+	listeMessage = append(listeMessage, "received message :", msg)
+
 	if strings.TrimSpace(msg) != "hello" {
 		log.Println("Protocole échoué : Attendu 'hello', reçu:", strings.TrimSpace(msg))
 		return
@@ -60,33 +65,47 @@ func RunClient(conn net.Conn) {
 
 	// Étape 2 : Le client répond "start"
 	listeMessage = append(listeMessage, "sent message :", "start \n")
-	if err := p.Send_message(writer, "start"); err != nil {
-		log.Println("Erreur lors de l'envoi de 'start':", err)
+	if err := p.Send_message(conn, writer, "start"); err != nil {
+		if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
+			log.Println("Timeout lors de l'envoi de 'start':", err)
+		} else {
+			log.Println("Erreur lors de l'envoi de 'start':", err)
+		}
 		return
 	}
 
 	// Étape 3 : Attendre le message "ok" du serveur
-	msg, err = p.Receive_message(reader)
-	listeMessage = append(listeMessage, "received message :", msg)
+	msg, err = p.Receive_message(conn, reader)
 	if err != nil {
-		log.Println("Erreur lors de la réception de 'ok' ou déconnexion:", err)
+		if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
+			log.Println("Timeout lors de la réception de 'ok':", err)
+		} else {
+			log.Println("Erreur lors de la réception de 'ok' ou déconnexion:", err)
+		}
 		return
 	}
+	listeMessage = append(listeMessage, "received message :", msg)
+
 	if strings.TrimSpace(msg) != "ok" {
 		log.Println("Protocole échoué : Attendu 'ok' (après start), reçu:", strings.TrimSpace(msg))
 		return
 	}
+
 	reader2 := bufio.NewReader(os.Stdin)
 
 	// Étape 4: le client entre ce qu'il souhaite dans le terminal
 	for {
 		fmt.Print("\nVous êtes dans ", posActuelle, "\nEntrez une commande à envoyer au serveur (ou 'end' pour terminer) : ")
-		line, _ := reader2.ReadString('\n')
+		line, err := reader2.ReadString('\n')
+		if err != nil {
+			log.Println("Erreur lecture stdin:", err)
+			break
+		}
 		line = strings.TrimSpace(line)
 
 		var split = strings.Split(line, " ")
 		command := strings.ToUpper(split[0])
-
+		log.Println(command)
 		// Déterminer si c'est le port de contrôle
 		isControlPort := strings.Contains(Remote, "3334")
 
@@ -94,58 +113,74 @@ func RunClient(conn net.Conn) {
 		if command == "END" {
 			break
 
-			// Commandes disponibles sur le port normal (3333)
 		} else if command == "GET" && !isControlPort && len(split) == 2 {
 			split = append(split, posActuelle)
-			Getclient(line, split, writer, reader)
+			if !Getclient(conn, line, split, writer, reader) {
+				return // Erreur critique, fermer la connexion
+			}
 
 		} else if command == "LIST" {
 			split = append(split, posActuelle)
-			ListClient(split, writer, reader)
+			if !ListClient(conn, split, writer, reader) {
+				return
+			}
 
 		} else if command == "HELP" {
 			listeMessage = append(listeMessage, "sent message :", "Help \n")
-			if err := p.Send_message(writer, "Help"); err != nil {
-				log.Println("Erreur lors de l'envoi de 'help':", err)
+			if err := p.Send_message(conn, writer, "Help"); err != nil {
+				if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
+					log.Println("Timeout lors de l'envoi de 'help':", err)
+				} else {
+					log.Println("Erreur lors de l'envoi de 'help':", err)
+				}
 				return
 			}
 
-			msg, err = p.Receive_message(reader)
-			listeMessage = append(listeMessage, "received message :", msg)
+			msg, err = p.Receive_message(conn, reader)
 			if err != nil {
-				log.Println("Erreur lors de la réception de la réponse ou déconnexion:", err)
+				if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
+					log.Println("Timeout lors de la réception de la réponse help:", err)
+				} else {
+					log.Println("Erreur lors de la réception de la réponse ou déconnexion:", err)
+				}
 				return
 			}
+			listeMessage = append(listeMessage, "received message :", msg)
 			log.Println(msg)
 
-			// Commandes disponibles uniquement sur le port de contrôle (3334)
 		} else if command == "TERMINATE" && isControlPort {
-			TerminateClient(writer, reader)
+			if !TerminateClient(conn, writer, reader) {
+				return
+			}
 			return // Fermer la connexion après terminate
 
 		} else if command == "HIDE" && isControlPort && len(split) == 2 {
 			split = append(split, posActuelle)
-			HideClient(split, writer, reader)
+			if !HideClient(conn, split, writer, reader) {
+				return
+			}
 
 		} else if command == "REVEAL" && isControlPort && len(split) == 2 {
 			split = append(split, posActuelle)
-			RevealClient(split, writer, reader)
+			if !RevealClient(conn, split, writer, reader) {
+				return
+			}
 
 		} else if command == "MESSAGES" && slog.Default().Enabled(context.Background(), slog.LevelDebug) {
 			fmt.Println(strings.Trim(fmt.Sprint(listeMessage), "[]"))
-			// Ne pas envoyer de message au serveur pour cette commande locale
 
 		} else if command == "TREE" {
 			split = append(split, posActuelle)
-			treeClient(split, writer, reader)
-			// Ne pas envoyer de message au serveur pour cette commande locale
+			if !treeClient(conn, split, writer, reader) {
+				return
+			}
 
 		} else if command == "GOTO" {
 			split = append(split, posActuelle)
 			if split[1] == ".." {
-				posActuelle = GOTOClient(posActuelle, split, writer, reader)
+				posActuelle = GOTOClient(conn, posActuelle, split, writer, reader)
 			} else {
-				posActuelle = posActuelle + "/" + GOTOClient(posActuelle, split, writer, reader)
+				posActuelle = posActuelle + "/" + GOTOClient(conn, posActuelle, split, writer, reader)
 			}
 			log.Println(posActuelle)
 			// Ne pas envoyer de message au serveur pour cette commande locale
@@ -153,40 +188,55 @@ func RunClient(conn net.Conn) {
 		} else {
 			// Commande inconnue ou invalide
 			listeMessage = append(listeMessage, "sent message :", "Unknown \n")
-			if err := p.Send_message(writer, "Unknown"); err != nil {
-				log.Println("Erreur lors de l'envoi de 'unknown':", err)
+			if err := p.Send_message(conn, writer, "Unknown"); err != nil {
+				if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
+					log.Println("Timeout lors de l'envoi de 'unknown':", err)
+				} else {
+					log.Println("Erreur lors de l'envoi de 'unknown':", err)
+				}
 				return
 			}
 
-			msg, err = p.Receive_message(reader)
-			listeMessage = append(listeMessage, "received message :", msg)
+			msg, err = p.Receive_message(conn, reader)
 			if err != nil {
-				log.Println("Erreur lors de la réception de la réponse ou déconnexion:", err)
+				if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
+					log.Println("Timeout lors de la réception de la réponse unknown:", err)
+				} else {
+					log.Println("Erreur lors de la réception de la réponse ou déconnexion:", err)
+				}
 				return
 			}
+			listeMessage = append(listeMessage, "received message :", msg)
 			log.Println(msg)
 		}
 	}
 
 	// Étape 5 : Le client répond "end"
 	listeMessage = append(listeMessage, "sent message :", "end \n")
-	if err := p.Send_message(writer, "end"); err != nil {
-		log.Println("Erreur lors de l'envoi de 'end':", err)
+	if err := p.Send_message(conn, writer, "end"); err != nil {
+		if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
+			log.Println("Timeout lors de l'envoi de 'end':", err)
+		} else {
+			log.Println("Erreur lors de l'envoi de 'end':", err)
+		}
 		return
 	}
 
 	// Étape 6 : Attendre le message "ok" final du serveur
-	msg, err = p.Receive_message(reader)
-	listeMessage = append(listeMessage, "received message :", msg)
+	msg, err = p.Receive_message(conn, reader)
 	if err != nil {
 		// La déconnexion immédiate du serveur après l'envoi du "ok" est possible
-		if err != net.ErrClosed && err != io.EOF {
+		if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
+			log.Println("Timeout lors de la réception de 'ok' final:", err)
+		} else if err != net.ErrClosed && err != io.EOF {
 			log.Println("Erreur lors de la réception de 'ok' final ou déconnexion:", err)
 		} else {
 			log.Println("Connexion fermée par le serveur après 'end'.")
 		}
 		return
 	}
+	listeMessage = append(listeMessage, "received message :", msg)
+
 	if strings.TrimSpace(msg) != "ok" {
 		log.Println("Protocole échoué : Attendu 'ok' final, reçu:", strings.TrimSpace(msg))
 		return
@@ -195,20 +245,28 @@ func RunClient(conn net.Conn) {
 	log.Println("Protocole terminé avec succès. Déconnexion du client.")
 }
 
-func Getclient(line string, splitGET []string, writer *bufio.Writer, reader *bufio.Reader) {
+func Getclient(conn net.Conn, line string, splitGET []string, writer *bufio.Writer, reader *bufio.Reader) bool {
 	listeMessage = append(listeMessage, "sent message :", line, "\n")
-	if err := p.Send_message(writer, splitGET[0]+" "+splitGET[1]+" "+splitGET[2]); err != nil {
-		log.Println("Erreur lors de l'envoi de la commande:", err)
-		return
+	if err := p.Send_message(conn, writer, "GET"+" "+splitGET[1]+" "+splitGET[2]); err != nil {
+		if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
+			log.Println("Timeout lors de l'envoi de la commande GET:", err)
+		} else {
+			log.Println("Erreur lors de l'envoi de la commande:", err)
+		}
+		return false
 	}
 
 	// Attend la réponse du serveur
-	var response, err = p.Receive_message(reader)
-	listeMessage = append(listeMessage, "received message :", response)
+	var response, err = p.Receive_message(conn, reader)
 	if err != nil {
-		log.Println("Erreur lors de la réception de la réponse:", err)
-		return
+		if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
+			log.Println("Timeout lors de la réception de la réponse GET:", err)
+		} else {
+			log.Println("Erreur lors de la réception de la réponse:", err)
+		}
+		return false
 	}
+	listeMessage = append(listeMessage, "received message :", response)
 	response = strings.TrimSpace(response)
 	log.Println(response)
 
@@ -218,26 +276,33 @@ func Getclient(line string, splitGET []string, writer *bufio.Writer, reader *buf
 
 		// Envoie "OK" pour confirmer la réception de FileUnknown
 		listeMessage = append(listeMessage, "sent message :", "OK \n")
-		if err := p.Send_message(writer, "OK"); err != nil {
-			log.Println("Erreur lors de l'envoi de 'OK':", err)
-			return
+		if err := p.Send_message(conn, writer, "OK"); err != nil {
+			if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
+				log.Println("Timeout lors de l'envoi de 'OK':", err)
+			} else {
+				log.Println("Erreur lors de l'envoi de 'OK':", err)
+			}
+			return false
 		}
 
 	} else if response == "Start" {
 		// Le serveur va envoyer le fichier
-		// Lire tout le contenu
-		data, err := p.Receive_message(reader)
-		listeMessage = append(listeMessage, "received message :", data)
+		data, err := p.Receive_message(conn, reader)
 		if err != nil {
-			log.Println("Erreur lors de la lecture du fichier:", err)
-			return
+			if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
+				log.Println("Timeout lors de la lecture du fichier:", err)
+			} else {
+				log.Println("Erreur lors de la lecture du fichier:", err)
+			}
+			return false
 		}
+		listeMessage = append(listeMessage, "received message :", data)
 
 		// Sauvegarde le fichier localement avec le même nom
 		err = os.WriteFile(splitGET[1], []byte(data), 0770)
 		if err != nil {
 			log.Println("Erreur lors de la sauvegarde du fichier:", err)
-			return
+			return false
 		}
 
 		log.Printf("Fichier '%s' reçu et sauvegardé (%d octets)\n", splitGET[1], len(data))
@@ -245,30 +310,44 @@ func Getclient(line string, splitGET []string, writer *bufio.Writer, reader *buf
 
 		// Envoie "OK" pour confirmer la bonne réception
 		listeMessage = append(listeMessage, "sent message :", "OK \n")
-		if err := p.Send_message(writer, "OK"); err != nil {
-			log.Println("Erreur lors de l'envoi de 'OK':", err)
-			return
+		if err := p.Send_message(conn, writer, "OK"); err != nil {
+			if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
+				log.Println("Timeout lors de l'envoi de 'OK':", err)
+			} else {
+				log.Println("Erreur lors de l'envoi de 'OK':", err)
+			}
+			return false
 		}
 	} else {
 		log.Println("Réponse inattendue du serveur:", response)
 	}
+
+	return true
 }
 
-func HideClient(split []string, writer *bufio.Writer, reader *bufio.Reader) {
+func HideClient(conn net.Conn, split []string, writer *bufio.Writer, reader *bufio.Reader) bool {
 	command := "HIDE " + split[1] + " " + split[2]
 	listeMessage = append(listeMessage, "sent message :", command, "\n")
-	if err := p.Send_message(writer, command); err != nil {
-		log.Println("Erreur lors de l'envoi de la commande:", err)
-		return
+	if err := p.Send_message(conn, writer, command); err != nil {
+		if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
+			log.Println("Timeout lors de l'envoi de la commande HIDE:", err)
+		} else {
+			log.Println("Erreur lors de l'envoi de la commande:", err)
+		}
+		return false
 	}
 
 	// Attendre la réponse du serveur
-	response, err := p.Receive_message(reader)
-	listeMessage = append(listeMessage, "received message :", response)
+	response, err := p.Receive_message(conn, reader)
 	if err != nil {
-		log.Println("Erreur lors de la réception de la réponse:", err)
-		return
+		if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
+			log.Println("Timeout lors de la réception de la réponse HIDE:", err)
+		} else {
+			log.Println("Erreur lors de la réception de la réponse:", err)
+		}
+		return false
 	}
+	listeMessage = append(listeMessage, "received message :", response)
 	response = strings.TrimSpace(response)
 
 	if response == "FileUnknown" {
@@ -278,23 +357,33 @@ func HideClient(split []string, writer *bufio.Writer, reader *bufio.Reader) {
 	} else {
 		log.Println("Réponse inattendue du serveur:", response)
 	}
+
+	return true
 }
 
-func RevealClient(split []string, writer *bufio.Writer, reader *bufio.Reader) {
+func RevealClient(conn net.Conn, split []string, writer *bufio.Writer, reader *bufio.Reader) bool {
 	command := "REVEAL " + split[1] + " " + split[2]
 	listeMessage = append(listeMessage, "sent message :", command, "\n")
-	if err := p.Send_message(writer, command); err != nil {
-		log.Println("Erreur lors de l'envoi de la commande:", err)
-		return
+	if err := p.Send_message(conn, writer, command); err != nil {
+		if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
+			log.Println("Timeout lors de l'envoi de la commande REVEAL:", err)
+		} else {
+			log.Println("Erreur lors de l'envoi de la commande:", err)
+		}
+		return false
 	}
 
 	// Attendre la réponse du serveur
-	response, err := p.Receive_message(reader)
-	listeMessage = append(listeMessage, "received message :", response)
+	response, err := p.Receive_message(conn, reader)
 	if err != nil {
-		log.Println("Erreur lors de la réception de la réponse:", err)
-		return
+		if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
+			log.Println("Timeout lors de la réception de la réponse REVEAL:", err)
+		} else {
+			log.Println("Erreur lors de la réception de la réponse:", err)
+		}
+		return false
 	}
+	listeMessage = append(listeMessage, "received message :", response)
 	response = strings.TrimSpace(response)
 
 	if response == "FileUnknown" {
@@ -304,36 +393,57 @@ func RevealClient(split []string, writer *bufio.Writer, reader *bufio.Reader) {
 	} else {
 		log.Println("Réponse inattendue du serveur:", response)
 	}
+
+	return true
 }
 
-func ListClient(split []string, writer *bufio.Writer, reader *bufio.Reader) {
+func ListClient(conn net.Conn, split []string, writer *bufio.Writer, reader *bufio.Reader) bool {
 	listeMessage = append(listeMessage, "sent message :", "List \n")
-	if err := p.Send_message(writer, "List "+split[1]); err != nil {
-		log.Println("Erreur lors de l'envoi de la commande:", err)
-		return
+	if err := p.Send_message(conn, writer, "List "+split[1]); err != nil {
+		if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
+			log.Println("Timeout lors de l'envoi de la commande LIST:", err)
+		} else {
+			log.Println("Erreur lors de l'envoi de la commande:", err)
+		}
+		return false
 	}
+
 	// Attend la réponse du serveur
-	var response, err = p.Receive_message(reader)
-	listeMessage = append(listeMessage, "received message :", response)
+	var response, err = p.Receive_message(conn, reader)
 	if err != nil {
-		log.Println("Erreur lors de la réception de la réponse:", err)
-		return
+		if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
+			log.Println("Timeout lors de la réception de la réponse LIST:", err)
+		} else {
+			log.Println("Erreur lors de la réception de la réponse:", err)
+		}
+		return false
 	}
+	listeMessage = append(listeMessage, "received message :", response)
 	response = strings.TrimSpace(response)
 
 	if response == "Start" {
 		// Le serveur va envoyer la liste
 		listeMessage = append(listeMessage, "sent message :", "OK \n")
-		if err := p.Send_message(writer, "OK"); err != nil {
-			log.Println("Erreur lors de l'envoi de 'OK':", err)
-			return
+		if err := p.Send_message(conn, writer, "OK"); err != nil {
+			if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
+				log.Println("Timeout lors de l'envoi de 'OK':", err)
+			} else {
+				log.Println("Erreur lors de l'envoi de 'OK':", err)
+			}
+			return false
 		}
-		data, err := p.Receive_message(reader)
-		listeMessage = append(listeMessage, "received message :", data)
+
+		data, err := p.Receive_message(conn, reader)
 		if err != nil {
-			log.Println("Erreur lors de la lecture de la liste:", err)
-			return
+			if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
+				log.Println("Timeout lors de la lecture de la liste:", err)
+			} else {
+				log.Println("Erreur lors de la lecture de la liste:", err)
+			}
+			return false
 		}
+		listeMessage = append(listeMessage, "received message :", data)
+
 		var datas = strings.Split(data, "--")
 		log.Println("\n=== Liste des fichiers disponibles ===")
 		for _, item := range datas {
@@ -345,31 +455,45 @@ func ListClient(split []string, writer *bufio.Writer, reader *bufio.Reader) {
 	}
 
 	listeMessage = append(listeMessage, "sent message :", "ok \n")
-	if err := p.Send_message(writer, "ok"); err != nil {
-		log.Println("Erreur lors de l'envoi de la commande:", err)
-		return
+	if err := p.Send_message(conn, writer, "ok"); err != nil {
+		if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
+			log.Println("Timeout lors de l'envoi de 'ok' final LIST:", err)
+		} else {
+			log.Println("Erreur lors de l'envoi de la commande:", err)
+		}
+		return false
 	}
+
+	return true
 }
 
-func TerminateClient(writer *bufio.Writer, reader *bufio.Reader) {
+func TerminateClient(conn net.Conn, writer *bufio.Writer, reader *bufio.Reader) bool {
 	listeMessage = append(listeMessage, "sent message :", "Terminate \n")
-	if err := p.Send_message(writer, "Terminate"); err != nil {
-		log.Println("Erreur lors de l'envoi de la commande:", err)
-		return
+	if err := p.Send_message(conn, writer, "Terminate"); err != nil {
+		if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
+			log.Println("Timeout lors de l'envoi de la commande TERMINATE:", err)
+		} else {
+			log.Println("Erreur lors de l'envoi de la commande:", err)
+		}
+		return false
 	}
 
 	log.Println("Commande TERMINATE envoyée, attente de la réponse du serveur...")
 
 	for {
-		rep, err := p.Receive_message(reader)
+		rep, err := p.Receive_message(conn, reader)
 		if err != nil {
 			// La connexion peut être fermée après le message final
 			if err == io.EOF {
 				log.Println("Serveur déconnecté")
-				return
+				return true
 			}
-			log.Println("Erreur lors de la réception de la réponse:", err)
-			return
+			if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
+				log.Println("Timeout lors de la réception de la réponse TERMINATE:", err)
+			} else {
+				log.Println("Erreur lors de la réception de la réponse:", err)
+			}
+			return false
 		}
 
 		listeMessage = append(listeMessage, "received message :", rep)
@@ -378,7 +502,7 @@ func TerminateClient(writer *bufio.Writer, reader *bufio.Reader) {
 		if rep == "Terminaison finie, le serveur s'éteint" {
 			log.Println(rep)
 			log.Println("Le serveur s'est arrêté avec succès")
-			return
+			return true
 		} else if strings.Contains(rep, "opération") {
 			log.Println(rep)
 		} else {
@@ -387,37 +511,56 @@ func TerminateClient(writer *bufio.Writer, reader *bufio.Reader) {
 	}
 }
 
-func treeClient(split []string, writer *bufio.Writer, reader *bufio.Reader) {
+func treeClient(conn net.Conn, split []string, writer *bufio.Writer, reader *bufio.Reader) bool {
 	listeMessage = append(listeMessage, "sent message :", "tree \n")
-	if err := p.Send_message(writer, "tree "+split[1]); err != nil {
-		log.Println("Erreur lors de l'envoi de la commande:", err)
-		return
+	if err := p.Send_message(conn, writer, "tree "+split[1]); err != nil {
+		if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
+			log.Println("Timeout lors de l'envoi de la commande TREE:", err)
+		} else {
+			log.Println("Erreur lors de l'envoi de la commande:", err)
+		}
+		return false
 	}
+
 	// Attend la réponse du serveur
-	var response, err = p.Receive_message(reader)
-	log.Println("response", response)
+	var response, err = p.Receive_message(conn, reader)
 	listeMessage = append(listeMessage, "received message :", response)
 	if err != nil {
-		log.Println("Erreur lors de la réception de la réponse:", err)
-		return
+		if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
+			log.Println("Timeout lors de la réception de la réponse TREE:", err)
+		} else {
+			log.Println("Erreur lors de la réception de la réponse:", err)
+		}
+		return false
 	}
+	listeMessage = append(listeMessage, "received message :", response)
 	response = strings.TrimSpace(response)
 
 	if response == "Start" {
 		log.Println("entered start")
 		// Le serveur va envoyer la liste
 		listeMessage = append(listeMessage, "sent message :", "OK \n")
-		if err := p.Send_message(writer, "OK"); err != nil {
-			log.Println("Erreur lors de l'envoi de 'OK':", err)
-			return
+		if err := p.Send_message(conn, writer, "OK"); err != nil {
+			if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
+				log.Println("Timeout lors de l'envoi de 'OK':", err)
+			} else {
+				log.Println("Erreur lors de l'envoi de 'OK':", err)
+			}
+			return false
 		}
-		data, err := p.Receive_message(reader)
+
+		data, err := p.Receive_message(conn, reader)
+		if err != nil {
+			if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
+				log.Println("Timeout lors de la lecture de la liste TREE:", err)
+			} else {
+				log.Println("Erreur lors de la lecture de la liste:", err)
+			}
+			return false
+		}
 		listeMessage = append(listeMessage, "received message :", data)
 		log.Println(data)
-		if err != nil {
-			log.Println("Erreur lors de la lecture de la liste:", err)
-			return
-		}
+
 		var datas = strings.Split(data, "--")
 		if split[1] == "Docs" {
 			log.Println("vous êtes à la racine")
@@ -434,20 +577,26 @@ func treeClient(split []string, writer *bufio.Writer, reader *bufio.Reader) {
 	}
 
 	listeMessage = append(listeMessage, "sent message :", "ok \n")
-	if err := p.Send_message(writer, "ok"); err != nil {
-		log.Println("Erreur lors de l'envoi de la commande:", err)
-		return
+	if err := p.Send_message(conn, writer, "ok"); err != nil {
+		if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
+			log.Println("Timeout lors de l'envoi de 'ok' final TREE:", err)
+		} else {
+			log.Println("Erreur lors de l'envoi de la commande:", err)
+		}
+		return false
 	}
+
+	return true
 }
 
-func GOTOClient(posActuelle string, split []string, writer *bufio.Writer, reader *bufio.Reader) string {
+func GOTOClient(conn net.Conn, posActuelle string, split []string, writer *bufio.Writer, reader *bufio.Reader) string {
 	listeMessage = append(listeMessage, "sent message :", "GOTO \n")
-	if err := p.Send_message(writer, "GOTO "+split[1]+" "+split[2]); err != nil {
+	if err := p.Send_message(conn, writer, "GOTO "+split[1]+" "+split[2]); err != nil {
 		log.Println("Erreur lors de l'envoi de la commande:", err)
 		return ""
 	}
 
-	var response, err = p.Receive_message(reader)
+	var response, err = p.Receive_message(conn, reader)
 	log.Println("response", response)
 	listeMessage = append(listeMessage, "received message :", response)
 	if err != nil {
