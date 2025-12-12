@@ -274,6 +274,14 @@ func HandleClient(conn net.Conn) {
 					return
 				}
 
+			} else if commGet[0] == "tree" {
+				var dir, err = os.ReadDir("Docs")
+				if err != nil {
+					log.Println(err)
+				}
+				var list, _ = ParcourFolder(dir, "", 0)
+				p.Send_message(writer, list)
+				tree(writer, reader)
 			} else if cleanedMsg == "end" {
 				addToListeMessage("sent message :", "ok \n")
 				if err := p.Send_message(writer, "ok"); err != nil {
@@ -593,12 +601,12 @@ func ListServer(commHideReveal []string, writer *bufio.Writer, reader *bufio.Rea
 	p.Send_message(writer, newlist)
 }
 
-func ParcourFolder(fichiers []os.DirEntry, list string, size int) string {
+func ParcourFolder(fichiers []os.DirEntry, list string, size int) (string, int) {
 	for _, fichier := range fichiers {
 		fileInfo, err := fichier.Info()
 		if err != nil {
 			log.Println("Erreur lors de la lecture du fichier:", err)
-			return err.Error()
+			return err.Error(), 0
 		}
 		size = size + 1
 
@@ -609,13 +617,14 @@ func ParcourFolder(fichiers []os.DirEntry, list string, size int) string {
 				log.Println("Erreur lecture sous-dossier:", err)
 				continue
 			}
-			var liste = ParcourFolder(newfichiers, list, size)
+			var liste, newsize = ParcourFolder(newfichiers, list, size)
+			size = size + newsize
 			list = list + " --" + fichier.Name() + " " + strconv.FormatInt(int64(fileInfo.Size()), 10) + " -- sous-dossier: " + " [" + liste + "]"
 		} else {
 			list = list + " --" + fichier.Name() + " " + strconv.FormatInt(int64(fileInfo.Size()), 10)
 		}
 	}
-	return list
+	return list, size
 }
 
 func DebugServer(writer *bufio.Writer, reader *bufio.Reader) {
@@ -680,6 +689,7 @@ func TerminateServer() {
 }
 
 func tree(writer *bufio.Writer, reader *bufio.Reader) {
+	log.Println("tree func")
 	var fichiers, err = os.ReadDir("Docs")
 	var list = ""
 	var size = 0
@@ -695,7 +705,9 @@ func tree(writer *bufio.Writer, reader *bufio.Reader) {
 		log.Println("Erreur lors de la lecture du fichier:", err)
 		return
 	} else if strings.TrimSpace(data) == "OK" {
-		//list, size = ParcourFolder(fichiers, list, size)
+		var templist, size = ParcourFolder(fichiers, list, size)
+		log.Println("list : ", size, templist)
+		list = list + templist
 		if err != nil {
 			log.Fatal(err)
 		}

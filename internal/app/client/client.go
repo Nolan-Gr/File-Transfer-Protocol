@@ -135,6 +135,11 @@ func RunClient(conn net.Conn) {
 			fmt.Println(strings.Trim(fmt.Sprint(listeMessage), "[]"))
 			// Ne pas envoyer de message au serveur pour cette commande locale
 
+		} else if command == "TREE" {
+			split = append(split, posActuelle)
+			treeClient(split, writer, reader)
+			// Ne pas envoyer de message au serveur pour cette commande locale
+
 		} else {
 			// Commande inconnue ou invalide
 			listeMessage = append(listeMessage, "sent message :", "Unknown \n")
@@ -369,5 +374,52 @@ func TerminateClient(writer *bufio.Writer, reader *bufio.Reader) {
 		} else {
 			log.Println(rep)
 		}
+	}
+}
+
+func treeClient(split []string, writer *bufio.Writer, reader *bufio.Reader) {
+	listeMessage = append(listeMessage, "sent message :", "List \n")
+	if err := p.Send_message(writer, "tree "+split[1]); err != nil {
+		log.Println("Erreur lors de l'envoi de la commande:", err)
+		return
+	}
+	// Attend la réponse du serveur
+	var response, err = p.Receive_message(reader)
+	listeMessage = append(listeMessage, "received message :", response)
+	if err != nil {
+		log.Println("Erreur lors de la réception de la réponse:", err)
+		return
+	}
+	response = strings.TrimSpace(response)
+
+	if response == "Start" {
+		log.Println("entered start")
+		// Le serveur va envoyer la liste
+		listeMessage = append(listeMessage, "sent message :", "OK \n")
+		if err := p.Send_message(writer, "OK"); err != nil {
+			log.Println("Erreur lors de l'envoi de 'OK':", err)
+			return
+		}
+		data, err := p.Receive_message(reader)
+		listeMessage = append(listeMessage, "received message :", data)
+		log.Println(data)
+		if err != nil {
+			log.Println("Erreur lors de la lecture de la liste:", err)
+			return
+		}
+		var datas = strings.Split(data, "--")
+		log.Println("\n=== Liste des fichiers disponibles ===")
+		for _, item := range datas {
+			if strings.TrimSpace(item) != "" {
+				log.Println(strings.TrimSpace(item))
+			}
+		}
+		log.Println("=====================================")
+	}
+
+	listeMessage = append(listeMessage, "sent message :", "ok \n")
+	if err := p.Send_message(writer, "ok"); err != nil {
+		log.Println("Erreur lors de l'envoi de la commande:", err)
+		return
 	}
 }
