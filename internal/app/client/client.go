@@ -178,9 +178,9 @@ func RunClient(conn net.Conn) {
 		} else if command == "GOTO" {
 			split = append(split, posActuelle)
 			if split[1] == ".." {
-				posActuelle = GOTOClient(posActuelle, split, writer, reader)
+				posActuelle = GOTOClient(conn, posActuelle, split, writer, reader)
 			} else {
-				posActuelle = posActuelle + "/" + GOTOClient(posActuelle, split, writer, reader)
+				posActuelle = posActuelle + "/" + GOTOClient(conn, posActuelle, split, writer, reader)
 			}
 			log.Println(posActuelle)
 			// Ne pas envoyer de message au serveur pour cette commande locale
@@ -589,51 +589,14 @@ func treeClient(conn net.Conn, split []string, writer *bufio.Writer, reader *buf
 	return true
 }
 
-func GOTOClient(posActuelle string, split []string, writer *bufio.Writer, reader *bufio.Reader) string {
+func GOTOClient(conn net.Conn, posActuelle string, split []string, writer *bufio.Writer, reader *bufio.Reader) string {
 	listeMessage = append(listeMessage, "sent message :", "GOTO \n")
-	if err := p.Send_message(writer, "GOTO "+split[1]+" "+split[2]); err != nil {
+	if err := p.Send_message(conn, writer, "GOTO "+split[1]+" "+split[2]); err != nil {
 		log.Println("Erreur lors de l'envoi de la commande:", err)
 		return ""
 	}
 
-	var response, err = p.Receive_message(reader)
-	log.Println("response", response)
-	listeMessage = append(listeMessage, "received message :", response)
-	if err != nil {
-		log.Println("Erreur lors de la réception de la réponse:", err)
-		return ""
-	}
-	response = strings.TrimSpace(response)
-
-	if response == "Start" {
-		posActuelle = split[1]
-	} else if response == "NO!" {
-		log.Println("vous êtes déjà dans ce fichier")
-	} else if response == "back" {
-		var index = ParcourPath(split)
-		posActuelle = split[2][0:index]
-	}
-	return posActuelle
-}
-
-func ParcourPath(split []string) int {
-	var posTab []int
-	for i, pos := range split[2] {
-		if pos == '/' {
-			posTab = append(posTab, i)
-		}
-	}
-	return posTab[len(posTab)-1]
-}
-
-func GOTOClient(posActuelle string, split []string, writer *bufio.Writer, reader *bufio.Reader) string {
-	listeMessage = append(listeMessage, "sent message :", "GOTO \n")
-	if err := p.Send_message(writer, "GOTO "+split[1]+" "+split[2]); err != nil {
-		log.Println("Erreur lors de l'envoi de la commande:", err)
-		return ""
-	}
-
-	var response, err = p.Receive_message(reader)
+	var response, err = p.Receive_message(conn, reader)
 	log.Println("response", response)
 	listeMessage = append(listeMessage, "received message :", response)
 	if err != nil {
