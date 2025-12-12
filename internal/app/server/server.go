@@ -17,23 +17,32 @@ import (
 	p "gitlab.univ-nantes.fr/iutna.info2.r305/proj/internal/pkg/proto"
 )
 
+// connectiontime : moment où le serveur normal a commencé à écouter.
+// Utilisé pour calculer l'uptime dans DebugServer.
 var connectiontime time.Time
 
-// Utilisation de sync.Mutex pour les compteurs au lieu de canaux
+// Compteurs globaux protégés par un mutex.
+// - compteurClient : nombre de connexions clientes actives (inclut control + normal).
+// - compteurOperations : nombre d'opérations (LIST/GET/HIDE/REVEAL) en cours.
 var (
 	compteurClient     int
 	compteurOperations int
 	compteurMutex      sync.Mutex
 )
 
-// Canal pour signaler la terminaison (utilisé avec sync.Once pour éviter double close)
+// Canal de signal de terminaison : on le ferme pour indiquer à toutes
+// les goroutines d'arrêter d'accepter/invoquer de nouvelles connexions.
+// shutdownOnce évite un double close (panique).
 var shutdownChan = make(chan struct{})
 var shutdownOnce sync.Once
 
-// Boolean pour la terminaison du serveur
+// Booléen et mutex pour indiquer si le serveur est en train de se terminer.
+// L'accès se fait via setServerShuttingDown/isServerShuttingDown pour être thread-safe.
 var terminaisonDuServeur bool = false
 var terminaisonMutex sync.RWMutex
 
+// ClientIO : stocke reader/writer du client de contrôle qui a demandé TERMINATE.
+// On garde ces streams pour pouvoir envoyer des messages d'état pendant la terminaison.
 type ClientIO struct {
 	writer *bufio.Writer
 	reader *bufio.Reader
@@ -44,6 +53,8 @@ var (
 	clientTerminantMutex sync.Mutex
 )
 
+// Historique de messages envoyés (usage pour debug/monitoring).
+// Accès protégé par listeMessageMutex.
 var (
 	listeMessage      = []string{"Historique des messages : \n"}
 	listeMessageMutex sync.Mutex
@@ -51,69 +62,67 @@ var (
 
 var listeValues = []string{}
 
-// WaitGroup pour attendre la fermeture des serveurs
+// WaitGroup pour attendre la fin des deux serveurs (normal + contrôle)
+// lors d'un RunServer.
 var serverWg sync.WaitGroup
 
-// Fonctions helper pour manipuler les compteurs de façon thread-safe
+// Helpers thread-safe pour manipuler les compteurs.
 func incrementerClient() int {
 	compteurMutex.Lock()
 	defer compteurMutex.Unlock()
 	compteurClient++
 	return compteurClient
 }
-
 func decrementerClient() int {
 	compteurMutex.Lock()
 	defer compteurMutex.Unlock()
 	compteurClient--
 	return compteurClient
 }
-
 func incrementerOperations() int {
 	compteurMutex.Lock()
 	defer compteurMutex.Unlock()
 	compteurOperations++
 	return compteurOperations
 }
-
 func decrementerOperations() int {
 	compteurMutex.Lock()
 	defer compteurMutex.Unlock()
 	compteurOperations--
 	return compteurOperations
 }
-
 func getCompteurOperations() int {
 	compteurMutex.Lock()
 	defer compteurMutex.Unlock()
 	return compteurOperations
 }
-
 func getCompteurClient() int {
 	compteurMutex.Lock()
 	defer compteurMutex.Unlock()
 	return compteurClient
 }
 
+// Accès thread-safe au drapeau de terminaison du serveur.
 func isServerShuttingDown() bool {
 	terminaisonMutex.RLock()
 	defer terminaisonMutex.RUnlock()
 	return terminaisonDuServeur
 }
-
 func setServerShuttingDown() {
 	terminaisonMutex.Lock()
 	defer terminaisonMutex.Unlock()
 	terminaisonDuServeur = true
 }
 
+// Ajoute un ou plusieurs messages à l'historique de façon thread-safe.
 func addToListeMessage(messages ...string) {
 	listeMessageMutex.Lock()
 	defer listeMessageMutex.Unlock()
 	listeMessage = append(listeMessage, messages...)
 }
 
-// Lance le serveur sur le port donné
+// RunServer lance deux listeners concurrents : un server "normal" et un server "control".
+// On utilise un WaitGroup pour attendre leur terminaison.
 func RunServer(port *string, controlPort *string) {
 	listeValues = append(listeValues, *port, *controlPort)
 
@@ -121,11 +130,12 @@ func RunServer(port *string, controlPort *string) {
 	go runNormalServer(port)
 	go runControlServer(controlPort)
 
-	// Attendre que les deux serveurs se terminent
+	// Attendre que les deux serveurs se terminent (appelé après shutdown).
 	serverWg.Wait()
 	log.Println("Tous les serveurs sont arrêtés")
 }
 
+// Listener principal pour les clients "normaux".
 func runNormalServer(port *string) {
 	defer serverWg.Done()
 
@@ -134,8 +144,10 @@ func runNormalServer(port *string) {
 		slog.Error(err.Error())
 		return
 	}
+	// enregistrer le temps de début pour l'uptime
 	connectiontime = time.Now()
 
+	// On ferme le listener à la sortie de la fonction.
 	defer func() {
 		err := l.Close()
 		if err != nil {
@@ -145,7 +157,8 @@ func runNormalServer(port *string) {
 	}()
 	slog.Debug("Now listening on port " + *port)
 
-	// Goroutine pour fermer le listener quand shutdownChan est fermé
+	// Goroutine qui ferme le listener lorsque shutdownChan est fermé.
+	// Cela permet à l'Accept() bloquant de sortir avec une erreur contrôlable.
 	go func() {
 		<-shutdownChan
 		l.Close()
@@ -154,11 +167,12 @@ func runNormalServer(port *string) {
 	for {
 		c, err := l.Accept()
 		if err != nil {
-			// Vérifier si c'est une erreur due à la fermeture du listener
+			// Si on est en cours d'arrêt, on termine proprement la boucle.
 			if isServerShuttingDown() {
 				slog.Info("Server normal terminé, arrêt des nouvelles connexions")
 				return
 			}
+			// Erreur non liée au shutdown : on log et on continue.
 			slog.Error(err.Error())
 			continue
 		}
@@ -167,6 +181,7 @@ func runNormalServer(port *string) {
 	}
 }
 
+// Listener pour le port de contrôle (commande TERMINATE, HIDE/REVEAL, etc.).
 func runControlServer(controlPort *string) {
 	defer serverWg.Done()
 
@@ -185,7 +200,7 @@ func runControlServer(controlPort *string) {
 	}()
 	slog.Debug("Now listening on port " + *controlPort)
 
-	// Goroutine pour fermer le listener quand shutdownChan est fermé
+	// Même mécanisme de fermeture via shutdownChan.
 	go func() {
 		<-shutdownChan
 		l.Close()
@@ -206,7 +221,10 @@ func runControlServer(controlPort *string) {
 	}
 }
 
-// Gère un client
+// HandleClient : logique pour un client "normal".
+// - Envoie "hello" au début.
+// - Attend des commandes (start, LIST, GET, tree, GOTO, end, messages, Help).
+// - Protège l'accès aux compteurs et à l'historique.
 func HandleClient(conn net.Conn) {
 	defer ClientLogOut(conn)
 
@@ -218,8 +236,10 @@ func HandleClient(conn net.Conn) {
 	reader := bufio.NewReader(conn)
 	writer := bufio.NewWriter(conn)
 
+	// Envoyer greeting initial via protocole (Send_message gère le flush/format).
 	addToListeMessage("sent message :", "hello \n")
 	if err := p.Send_message(conn, writer, "hello"); err != nil {
+		// Sensible aux erreurs réseau (timeouts etc.)
 		if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
 			log.Println("Timeout lors de l'envoi de 'hello':", err)
 		} else {
@@ -229,6 +249,7 @@ func HandleClient(conn net.Conn) {
 	}
 
 	for {
+		// Boucle de réception de commandes.
 		msg, err := p.Receive_message(conn, reader)
 		if err != nil {
 			if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
@@ -244,9 +265,11 @@ func HandleClient(conn net.Conn) {
 
 		var commGet = strings.Split(cleanedMsg, " ")
 
+		// Si le serveur n'est pas en train de se terminer, traiter les commandes.
 		if !isServerShuttingDown() {
 			log.Println("cleanedMessage :", cleanedMsg)
 			if cleanedMsg == "start" {
+				// Répondre OK pour démarrer la session.
 				addToListeMessage("sent message :", "ok \n")
 				if err := p.Send_message(conn, writer, "ok"); err != nil {
 					if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
@@ -258,9 +281,11 @@ func HandleClient(conn net.Conn) {
 				}
 
 			} else if len(commGet) == 2 && commGet[0] == "List" {
+				// LIST : incrémenter compteur d'opération, exécuter ListServer.
 				nbOp := incrementerOperations()
 				log.Println("Commande LIST reçue, opérations en cours:", nbOp)
 				if !ListServer(conn, commGet, writer, reader) {
+					// En cas d'erreur, décrémenter et quitter.
 					decrementerOperations()
 					return
 				}
@@ -268,6 +293,7 @@ func HandleClient(conn net.Conn) {
 				log.Println("Commande LIST terminée, opérations restantes:", nbOp)
 
 			} else if len(commGet) == 3 && commGet[0] == "GET" {
+				// GET : transfert d'un fichier
 				nbOp := incrementerOperations()
 				log.Println("Commande GET reçue pour:", commGet[1], ", opérations en cours:", nbOp)
 				if !Getserver(conn, commGet, writer, reader) {
@@ -278,6 +304,7 @@ func HandleClient(conn net.Conn) {
 				log.Println("Commande GET terminée, opérations restantes:", nbOp)
 
 			} else if cleanedMsg == "Unknown" {
+				// Commande inconnue : renvoyer message d'aide.
 				addToListeMessage("sent message :", "Commande inconnue. Veuillez entrer HELP pour avoir la liste de commande. \n")
 				if err := p.Send_message(conn, writer, "Commande inconnue. Veuillez entrer HELP pour avoir la liste de commande."); err != nil {
 					if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
@@ -302,18 +329,12 @@ func HandleClient(conn net.Conn) {
 				}
 
 			} else if commGet[0] == "tree" {
-				if err != nil {
-					log.Println(err)
-					continue
-				}
+				// Envoie l'arbre récursif du dossier "Docs"
 				if !tree(conn, writer, reader) {
 					return
 				}
 			} else if commGet[0] == "GOTO" {
-				if err != nil {
-					log.Println(err)
-				}
-
+				// GOTO : navigue vers un dossier donné (proto simple ici)
 				if commGet[1] == ".." {
 					addToListeMessage("sent message :", "back", " \n")
 					if err := p.Send_message(conn, writer, "back"); err != nil {
@@ -342,6 +363,7 @@ func HandleClient(conn net.Conn) {
 					}
 				}
 			} else if cleanedMsg == "end" {
+				// Fin de la session cliente.
 				addToListeMessage("sent message :", "ok \n")
 				if err := p.Send_message(conn, writer, "ok"); err != nil {
 					if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
@@ -353,15 +375,18 @@ func HandleClient(conn net.Conn) {
 				return
 
 			} else if cleanedMsg == "messages" {
+				// Affiche l'historique côté serveur (debug).
 				listeMessageMutex.Lock()
 				fmt.Println(strings.Trim(fmt.Sprint(listeMessage), "[]"))
 				listeMessageMutex.Unlock()
 
 			} else {
+				// Message inattendu : on l'ignore (mais on log).
 				log.Println("Message inattendu du client:", cleanedMsg)
 				continue
 			}
 		} else {
+			// Si le serveur est en cours d'arrêt : informer le client et couper la connexion.
 			addToListeMessage("sent message :", "Server terminating, connection closing. \n")
 			if err := p.Send_message(conn, writer, "Server terminating, connection closing."); err != nil {
 				if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
@@ -373,6 +398,7 @@ func HandleClient(conn net.Conn) {
 			return
 		}
 
+		// Si le logger est en mode debug, on renvoie des infos de debug au client.
 		if slog.Default().Enabled(context.Background(), slog.LevelDebug) {
 			log.Println("debug ")
 			DebugServer(writer, reader)
@@ -380,6 +406,9 @@ func HandleClient(conn net.Conn) {
 	}
 }
 
+// HandleControlClient : similaire à HandleClient mais ajoute des commandes de contrôle
+// (HIDE, REVEAL, TERMINATE). Lorsque TERMINATE est reçu, on stocke le writer/reader de
+// ce client pour l'utiliser pendant la séquence de terminaison.
 func HandleControlClient(conn net.Conn) {
 	defer ClientLogOut(conn)
 
@@ -441,14 +470,17 @@ func HandleControlClient(conn net.Conn) {
 				log.Println("Commande LIST terminée, opérations restantes:", nbOp)
 
 			} else if cleanedMsg == "Terminate" {
+				// Stocker les flux du client initiant la terminaison pour pouvoir
+				// lui envoyer des messages d'état durant l'arrêt.
 				log.Println("Commande TERMINATE reçue")
 				clientTerminantMutex.Lock()
 				clientTerminant.reader = reader
 				clientTerminant.writer = writer
 				clientTerminantMutex.Unlock()
-				// Lancer la terminaison dans une goroutine
+				// Lancer la procédure de terminaison dans une goroutine séparée
+				// pour ne pas bloquer la boucle de réception du client de contrôle.
 				go TerminateServer(conn)
-				// Attendre que le serveur se termine
+				// Attendre que shutdownChan soit fermé (TerminateServer le ferme).
 				<-shutdownChan
 				return
 
@@ -513,15 +545,8 @@ func HandleControlClient(conn net.Conn) {
 				listeMessageMutex.Unlock()
 
 			} else if commHideReveal[0] == "tree" {
-				if err != nil {
-					log.Println(err)
-				}
 				tree(conn, writer, reader)
 			} else if commHideReveal[0] == "GOTO" {
-				if err != nil {
-					log.Println(err)
-				}
-
 				if commHideReveal[1] == ".." {
 					addToListeMessage("sent message :", "back", " \n")
 					if err := p.Send_message(conn, writer, "back"); err != nil {
@@ -572,7 +597,8 @@ func HandleControlClient(conn net.Conn) {
 	}
 }
 
-// Déconnecte le client
+// ClientLogOut : décrémente le compteur client et ferme la connexion.
+// Appelée en defer à la sortie des handlers.
 func ClientLogOut(conn net.Conn) {
 	taille := decrementerClient()
 	log.Println("nombre de client : ", taille)
@@ -585,6 +611,9 @@ func ClientLogOut(conn net.Conn) {
 	}
 }
 
+// Getserver : implémentation de GET.
+// - Parcourt le dossier fourni (commGet[2]) pour trouver le fichier commGet[1].
+// - Envoie "Start", envoie le contenu si trouvé, puis attend la confirmation client.
 func Getserver(conn net.Conn, commGet []string, writer *bufio.Writer, reader *bufio.Reader) bool {
 	var fichiers, err = os.ReadDir(commGet[2])
 	if err != nil {
@@ -642,6 +671,7 @@ func Getserver(conn net.Conn, commGet []string, writer *bufio.Writer, reader *bu
 		}
 	}
 
+	// Attendre la confirmation du client après le transfert/erreur.
 	var response, err2 = p.Receive_message(conn, reader)
 	if err2 != nil {
 		if netErr, ok := err2.(net.Error); ok && netErr.Timeout() {
@@ -655,6 +685,8 @@ func Getserver(conn net.Conn, commGet []string, writer *bufio.Writer, reader *bu
 	return true
 }
 
+// HIDE : renomme le fichier en le préfixant par '.' pour le cacher.
+// Envoie OK si succès, FileUnknown si fichier non trouvé.
 func HIDE(conn net.Conn, commHideReveal []string, writer *bufio.Writer, reader *bufio.Reader) bool {
 	var fichiers, err = os.ReadDir(commHideReveal[2])
 	if err != nil {
@@ -706,6 +738,7 @@ func HIDE(conn net.Conn, commHideReveal []string, writer *bufio.Writer, reader *
 	return true
 }
 
+// REVEAL : retire le préfixe '.' pour rendre visible le fichier.
 func REVEAL(conn net.Conn, commHideReveal []string, writer *bufio.Writer, reader *bufio.Reader) bool {
 	var fichiers, err = os.ReadDir(commHideReveal[2])
 	if err != nil {
@@ -757,6 +790,8 @@ func REVEAL(conn net.Conn, commHideReveal []string, writer *bufio.Writer, reader
 	return true
 }
 
+// ListServer : envoie la liste des fichiers non cachés dans le dossier demandé.
+// Protocole : envoie "Start", attend "OK" du client, puis envoie "FileCnt : N --name size ..."
 func ListServer(conn net.Conn, commHideReveal []string, writer *bufio.Writer, reader *bufio.Reader) bool {
 	var fichiers, err = os.ReadDir(commHideReveal[1])
 	if err != nil {
@@ -791,6 +826,7 @@ func ListServer(conn net.Conn, commHideReveal []string, writer *bufio.Writer, re
 
 	if strings.TrimSpace(data) == "OK" {
 		for _, fichier := range fichiers {
+			// Ignorer les fichiers cachés (commençant par '.')
 			if fichier.Name()[0] != '.' {
 				fileInfo, err := fichier.Info()
 				if err != nil {
@@ -818,6 +854,9 @@ func ListServer(conn net.Conn, commHideReveal []string, writer *bufio.Writer, re
 	return true
 }
 
+// ParcourFolder : fonction récursive utilisée par tree pour construire l'arborescence.
+// Retourne la liste sous forme de chaîne et le nombre total d'éléments trouvés.
+// Remarque : gère les erreurs en les loggant, et continue sur sous-dossiers problématiques.
 func ParcourFolder(fichiers []os.DirEntry, list string, size int) (string, int) {
 	for _, fichier := range fichiers {
 		fileInfo, err := fichier.Info()
@@ -845,7 +884,9 @@ func ParcourFolder(fichiers []os.DirEntry, list string, size int) (string, int) 
 	return list, size
 }
 
-// Envoie des informations de debug au client (si le niveau de log est debug)
+// DebugServer : envoie des informations de debug au client.
+// Utilise getCompteurClient/getCompteurOperations et connectiontime pour l'uptime.
+// Ici p.Send_message est appelé avec nil pour le net.Conn car seule la writer est utilisée.
 func DebugServer(writer *bufio.Writer, reader *bufio.Reader) bool {
 	msg := fmt.Sprintf("DebugInfo: clients=%d, operations=%d, uptime=%s",
 		getCompteurClient(),
@@ -860,7 +901,12 @@ func DebugServer(writer *bufio.Writer, reader *bufio.Reader) bool {
 	return true
 }
 
-// Gère la terminaison propre du serveur
+// TerminateServer : procédure de terminaison propre.
+// - marque le serveur comme en arrêt (setServerShuttingDown)
+// - attend que toutes les opérations en cours soient terminées et que les autres clients se déconnectent
+// - envoie des messages de statut au client de contrôle qui a demandé la terminaison
+// - ferme shutdownChan (une seule fois) pour déclencher la fermeture des listeners
+// - appelle os.Exit(0) après un court délai pour s'assurer d'une sortie complète.
 func TerminateServer(conn net.Conn) {
 	log.Println("Initiation de la terminaison du serveur...")
 	setServerShuttingDown() // Indiquer que le serveur s'arrête
@@ -869,13 +915,15 @@ func TerminateServer(conn net.Conn) {
 	writer := clientTerminant.writer
 	clientTerminantMutex.Unlock()
 
-	// Boucle d'attente pour les opérations en cours
+	// Boucle d'attente : on surveille ops et clients.
 	for {
 		ops := getCompteurOperations()
 		clients := getCompteurClient()
-		// Soustraire le client de contrôle qui a initié la commande
+		// Soustraire le client de contrôle qui a initié la commande,
+		// car il est toujours connecté pendant la procédure.
 		clientsApresControle := clients - 1
 
+		// Condition de sortie : aucune opération en cours et aucun client (hors control).
 		if ops == 0 && clientsApresControle == 0 {
 			break
 		}
@@ -884,11 +932,13 @@ func TerminateServer(conn net.Conn) {
 		log.Println(msg)
 
 		addToListeMessage("sent message :", msg, "\n")
+		// On essaye d'envoyer le message d'état au client initiateur ;
+		// en cas d'erreur d'envoi on continue (ne bloque pas la terminaison).
 		if err := p.Send_message(conn, writer, msg); err != nil {
 			log.Println("Erreur lors de l'envoi du message d'attente de terminaison:", err)
-			// Continuer même en cas d'erreur d'envoi
 		}
 
+		// Attente active courte (polling simple). On pourrait améliorer avec condition variables.
 		time.Sleep(1 * time.Second)
 	}
 
@@ -900,20 +950,21 @@ func TerminateServer(conn net.Conn) {
 		log.Println("Erreur lors de l'envoi du message final de terminaison:", err)
 	}
 
-	// Fermer le canal de shutdown pour signaler aux listeners de se fermer
+	// Fermer shutdownChan une seule fois pour signaler aux goroutines d'arrêter.
 	shutdownOnce.Do(func() {
 		close(shutdownChan)
 	})
 
-	// ClientLogOut sera appelé par le defer de HandleControlClient
-	// après le retour de TerminateServer (suite à la réception du signal)
+	// ClientLogOut sera appelé par le defer de HandleControlClient après le retour.
 	log.Println("Terminaison complète, fermeture du serveur...")
 
-	// Forcer la sortie du programme après un court délai
+	// On force une sortie du process après un court délai pour s'assurer de la fermeture.
 	time.Sleep(500 * time.Millisecond)
 	os.Exit(0)
 }
 
+// tree : construit et envoie l'arbre complet du dossier "Docs".
+// Protocole similaire à LIST : Start -> attendre OK -> envoyer la liste complète.
 func tree(conn net.Conn, writer *bufio.Writer, reader *bufio.Reader) bool {
 	log.Println("tree func")
 
