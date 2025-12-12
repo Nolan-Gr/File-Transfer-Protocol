@@ -916,32 +916,59 @@ func TerminateServer(conn net.Conn) {
 
 func tree(conn net.Conn, writer *bufio.Writer, reader *bufio.Reader) bool {
 	log.Println("tree func")
+
 	var fichiers, err = os.ReadDir("Docs")
+	if err != nil {
+		log.Println("Erreur lecture dossier Docs:", err)
+		return false
+	}
+
 	var list = ""
 	var size = 0
-	listeMessage = append(listeMessage, "sent message :", "Start \n")
+
+	addToListeMessage("sent message :", "Start \n")
 	if err := p.Send_message(conn, writer, "Start"); err != nil {
-		log.Println("Erreur lors de l'envoi de 'Start':", err)
+		if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
+			log.Println("Timeout lors de l'envoi de 'Start' (tree):", err)
+		} else {
+			log.Println("Erreur lors de l'envoi de 'Start':", err)
+		}
 		return false
 	}
+
 	log.Println(fichiers)
 	data, err := p.Receive_message(conn, reader)
-	log.Println("data:", data)
 	if err != nil {
-		log.Println("Erreur lors de la lecture du fichier:", err)
-		return false
-	} else if strings.TrimSpace(data) == "OK" {
-		var templist, tempsize = ParcourFolder(fichiers, list, size)
-		log.Println("list : ", size, templist)
-		list = list + templist
-		size = size + tempsize
-		if err != nil {
-			log.Fatal(err)
+		if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
+			log.Println("Timeout lors de la réception de la confirmation 'OK' (tree):", err)
+		} else {
+			log.Println("Erreur lors de la lecture du fichier (attendu OK):", err)
 		}
+		return false
 	}
-	var newlist = "FileCnt : " + strconv.Itoa(size) + list
-	log.Println(newlist)
-	listeMessage = append(listeMessage, "sent message :", newlist, "\n")
-	p.Send_message(conn, writer, newlist)
+	log.Println("data:", data)
+
+	if strings.TrimSpace(data) == "OK" {
+		var templist, tempsize = ParcourFolder(fichiers, list, size)
+		log.Println("list : ", tempsize, templist)
+		list = list + templist
+		size = tempsize
+		var newlist = "FileCnt : " + strconv.Itoa(size) + list
+		log.Println(newlist)
+
+		addToListeMessage("sent message :", newlist, "\n")
+		if err := p.Send_message(conn, writer, newlist); err != nil {
+			if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
+				log.Println("Timeout lors de l'envoi de la liste finale (tree):", err)
+			} else {
+				log.Println("Erreur lors de l'envoi de la liste finale:", err)
+			}
+			return false
+		}
+	} else {
+		log.Println("Protocole tree échoué : Attendu 'OK', reçu:", strings.TrimSpace(data))
+		return false
+	}
+
 	return true
 }
