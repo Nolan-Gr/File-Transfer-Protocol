@@ -438,6 +438,43 @@ func HandleControlClient(conn net.Conn) {
 				log.Println(listeMessage)
 				listeMessageMutex.Unlock()
 
+			} else if commHideReveal[0] == "tree" {
+				if err != nil {
+					log.Println(err)
+				}
+				tree(writer, reader)
+			} else if commHideReveal[0] == "GOTO" {
+				if err != nil {
+					log.Println(err)
+				}
+
+				if commHideReveal[1] == ".." {
+					addToListeMessage("sent message :", "back", " \n")
+					if err := p.Send_message(writer, "back"); err != nil {
+						log.Println("Erreur lors de l'envoi de 'Start':", err)
+						return
+					}
+				} else if commHideReveal[2] != commHideReveal[1] {
+					var fichiers, err = os.ReadDir(commHideReveal[2])
+					if err != nil {
+						log.Println(err)
+					}
+					for _, fichier := range fichiers {
+						if fichier.Name() == commHideReveal[1] && fichier.IsDir() {
+							addToListeMessage("sent message :", "Start \n")
+							if err := p.Send_message(writer, "Start"); err != nil {
+								log.Println("Erreur lors de l'envoi de 'Start':", err)
+								return
+							}
+						}
+					}
+				} else {
+					addToListeMessage("sent message :", "NO! \n")
+					if err := p.Send_message(writer, "NO!"); err != nil {
+						log.Println("Erreur lors de l'envoi de 'Start':", err)
+						return
+					}
+				}
 			} else {
 				log.Println("Message inattendu du client:", cleanedMsg)
 				continue
