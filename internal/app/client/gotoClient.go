@@ -45,6 +45,10 @@ func GOTOClient(conn net.Conn, posActuelle string, split []string, writer *bufio
 	} else if response == "back" {
 		// Succès de remontée. Calculer et retourner le nouveau chemin
 		var index = ParcourPath(split[2])
+		if index == -1 {
+			log.Println("Déjà à la racine, impossible de remonter")
+			return split[2] // on reste au même endroit
+		}
 		return split[2][0:index]
 	} else { // Inclut NO! et toute autre réponse inattendue
 		log.Println("Navigation impossible ou réponse inattendue:", response)
