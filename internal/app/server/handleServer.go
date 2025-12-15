@@ -14,9 +14,6 @@ import (
 )
 
 // HandleClient : logique pour un client "normal".
-// - Envoie "hello" au début.
-// - Attend des commandes (start, LIST, GET, tree, GOTO, end, messages, Help).
-// - Protège l'accès aux compteurs et à l'historique.
 func HandleClient(conn net.Conn) {
 	defer ClientLogOut(conn)
 
@@ -120,7 +117,9 @@ func HandleClient(conn net.Conn) {
 				}
 
 			} else if commGet[0] == "GOTO" {
-				GOTO(commGet, conn, writer)
+				if !GOTO(commGet, conn, writer) { // Appel avec vérification de l'échec réseau
+					return // Fermer la connexion en cas d'erreur Send_message/Timeout dans GOTO
+				}
 
 			} else if cleanedMsg == "end" {
 				// Fin de la session cliente.
@@ -157,9 +156,7 @@ func HandleClient(conn net.Conn) {
 	}
 }
 
-// HandleControlClient : similaire à HandleClient mais ajoute des commandes de contrôle
-// (HIDE, REVEAL, TERMINATE). Lorsque TERMINATE est reçu, on stocke le writer/reader de
-// ce client pour l'utiliser pendant la séquence de terminaison.
+// HandleControlClient : logique pour le client de contrôle (suppression de l'ancienne logique d'historique).
 func HandleControlClient(conn net.Conn) {
 	defer ClientLogOut(conn)
 
@@ -217,7 +214,6 @@ func HandleControlClient(conn net.Conn) {
 				log.Println("Commande LIST terminée, opérations restantes:", nbOp)
 
 				// TERMINATE : permet d'éteindre le serveur et de déconnecter les autres clients
-				// une fois leurs requêtes terminées
 			} else if cleanedMsg == "Terminate" {
 				// Stocker les flux du client initiant la terminaison pour pouvoir
 				// lui envoyer des messages d'état durant l'arrêt.
@@ -227,7 +223,6 @@ func HandleControlClient(conn net.Conn) {
 				clientTerminant.writer = writer
 				clientTerminantMutex.Unlock()
 				// Lancer la procédure de terminaison dans une goroutine séparée
-				// pour ne pas bloquer la boucle de réception du client de contrôle.
 				go TerminateServer(conn)
 				// Attendre que shutdownChan soit fermé (TerminateServer le ferme).
 				<-shutdownChan
@@ -246,7 +241,7 @@ func HandleControlClient(conn net.Conn) {
 
 				// HELP : le client reçoit la liste des commandes qu'il peut effectuer
 			} else if cleanedMsg == "Help" {
-				helpMessage := "Commandes disponibles : LIST, HIDE <filename>, REVEAL <filename>, GOTO <target>, TREE, HELP, END et TERMINATE	"
+				helpMessage := "Commandes disponibles : LIST, HIDE <filename>, REVEAL <filename>, GOTO <target>, TREE, HELP, END et TERMINATE  "
 				if err := p.Send_message(conn, writer, helpMessage); err != nil {
 					var netErr net.Error
 					if errors.As(err, &netErr) && netErr.Timeout() {
@@ -291,7 +286,9 @@ func HandleControlClient(conn net.Conn) {
 				tree(conn, writer, reader)
 
 			} else if commHideReveal[0] == "GOTO" {
-				GOTO(commHideReveal, conn, writer)
+				if !GOTO(commHideReveal, conn, writer) {
+					return
+				}
 
 			} else {
 				log.Println("Message inattendu du client:", cleanedMsg)
@@ -299,6 +296,7 @@ func HandleControlClient(conn net.Conn) {
 			}
 
 		} else {
+			// Si le serveur est en cours d'arrêt : informer le client et couper la connexion.
 			if err := p.Send_message(conn, writer, "Server terminating, connection closing."); err != nil {
 				var netErr net.Error
 				if errors.As(err, &netErr) && netErr.Timeout() {

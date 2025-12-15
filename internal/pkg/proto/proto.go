@@ -12,11 +12,48 @@ import (
 // MessageTimeout Timeout par défaut (peut être modifié via flag)
 var MessageTimeout = 20 * time.Second
 
+// --- GESTION DE L'HISTORIQUE DES MESSAGES ---
+var (
+	// messageHistory est un canal de type string, chaque message de protocole y est envoyé.
+	messageHistory = make(chan string, 1000)
+	// historyCache est la liste réelle des messages pour l'affichage.
+	historyCache = []string{"Historique des messages : \n"}
+)
+
+// init démarre une goroutine pour lire le canal et construire le cache.
+// On ne loggue que si le mode debug est actif pour ne pas ralentir inutilement.
+func init() {
+	go func() {
+		for msg := range messageHistory {
+			historyCache = append(historyCache, msg)
+		}
+	}()
+}
+
+// LogMessage ajoute un message formaté dans le canal d'historique.
+func LogMessage(direction string, msg string) {
+	// Si le canal est plein, le message est perdu, mais le programme ne bloque pas.
+	select {
+	case messageHistory <- fmt.Sprintf("%s message: %s \n", direction, strings.TrimSpace(msg)):
+	default:
+		// Optionnel : logguer la perte d'un message si le buffer est plein
+		log.Println("Avertissement: Le buffer d'historique de messages est plein.")
+	}
+}
+
+// GetHistorique retourne l'historique des messages.
+func GetHistorique() []string {
+	return historyCache
+}
+
 // Send_message envoie un message avec un timeout.
 func Send_message(conn net.Conn, out *bufio.Writer, message string) error {
 	if !strings.HasSuffix(message, "\n") {
 		message += "\n"
 	}
+
+	// Log message envoyé
+	LogMessage("sent", message)
 
 	// Définir un deadline pour l'opération d'écriture
 	if err := conn.SetWriteDeadline(time.Now().Add(MessageTimeout)); err != nil {
@@ -27,7 +64,7 @@ func Send_message(conn net.Conn, out *bufio.Writer, message string) error {
 	defer func(conn net.Conn, t time.Time) {
 		err := conn.SetWriteDeadline(t)
 		if err != nil {
-
+			// log.Println("Erreur SetWriteDeadline defer:", err)
 		}
 	}(conn, time.Time{})
 
@@ -55,7 +92,7 @@ func Receive_message(conn net.Conn, in *bufio.Reader) (string, error) {
 	defer func(conn net.Conn, t time.Time) {
 		err := conn.SetReadDeadline(t)
 		if err != nil {
-
+			// log.Println("Erreur SetReadDeadline defer:", err)
 		}
 	}(conn, time.Time{})
 
@@ -64,24 +101,8 @@ func Receive_message(conn net.Conn, in *bufio.Reader) (string, error) {
 		return "", fmt.Errorf("erreur lecture message: %w", err)
 	}
 
-	return message, nil
-}
+	// Log message reçu
+	LogMessage("received", message)
 
-// ParcourPath retourne l'index de la dernière barre '/' dans split[2].
-// Utilisé pour remonter d'un niveau dans le chemin local.
-// Remarque : si il n'y a pas de '/', la fonction plantera (index out of range).
-func ParcourPath(split string) int {
-	var posTab []int
-	for i, pos := range split {
-		if pos == '/' {
-			// on enregistre les positions où il y a une barre
-			posTab = append(posTab, i)
-		}
-	}
-	// On renvoie la position de la dernière barre trouvée
-	if len(posTab) == 0 {
-		return -1
-	}
-	log.Println(posTab)
-	return posTab[len(posTab)-1]
+	return message, nil
 }

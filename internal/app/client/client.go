@@ -2,6 +2,7 @@ package client
 
 import (
 	"bufio"
+	"context"
 	"errors"
 	"fmt"
 	"log"
@@ -116,7 +117,12 @@ func RunClient(conn net.Conn) {
 		switch {
 		// Le client se déconnecte localement
 		case command == "END":
-			break
+			return
+
+			// MESSAGES : affiche l'historique des messages (commande locale client)
+		case command == "MESSAGES" && slog.Default().Enabled(context.Background(), slog.LevelDebug):
+			fmt.Println(strings.Trim(fmt.Sprint(p.GetHistorique()), "[]"))
+			continue
 
 			// GET <filename> : on ajoute la position actuelle au tableau pour que Getclient sache où chercher
 		case command == "GET" && !isControlPort && len(split) == 2:
@@ -185,21 +191,31 @@ func RunClient(conn net.Conn) {
 			// GOTO <target> : change la position locale en interrogeant le serveur
 		case command == "GOTO":
 			split = append(split, posActuelle)
-			var index = p.ParcourPath(split[2]) + 1
-			if index == -1 {
-				index = 0
+
+			nouvellePos := GOTOClient(conn, posActuelle, split, writer, reader)
+
+			// 1. Vérification des erreurs réseau (GOTOClient retourne "" en cas d'échec Send/Receive)
+			if nouvellePos == "" {
+				log.Println("Erreur critique de communication GOTO. Fermeture.")
+				return
 			}
-			log.Println(split[2][index:len(split[2])], split)
+
+			// 2. Traitement de la réponse NO! (Échec de navigation ou déjà là)
+			if nouvellePos == "NO!" {
+				log.Println("Le répertoire n'a pas changé. Continuer la boucle.")
+				continue
+			}
+
+			// 3. Traitement du Succès de navigation (nouvellePos contient le chemin cible ou le parent)
+
 			if split[1] == ".." {
-				// remonter d'un niveau
-				posActuelle = GOTOClient(conn, posActuelle, split, writer, reader)
-			} else if split[2][index:len(split[2])] == split[1] {
-				log.Println("vous êtes déjà dans ce fichier")
+				// Remonter d'un niveau. nouvellePos contient le chemin parent (ex: Docs/docs)
+				posActuelle = nouvellePos
 			} else {
-				log.Println("position", posActuelle)
-				// descendre dans un sous-dossier : on ajoute "/<nom>" au chemin local
-				posActuelle = posActuelle + "/" + GOTOClient(conn, posActuelle, split, writer, reader)
+				// Descendre dans un sous-dossier. nouvellePos contient le nom du sous-dossier (ex: docs)
+				posActuelle = posActuelle + "/" + nouvellePos
 			}
+
 			// Commande inconnue : informer le serveur et afficher la réponse
 		default:
 			if err := p.Send_message(conn, writer, "Unknown"); err != nil {

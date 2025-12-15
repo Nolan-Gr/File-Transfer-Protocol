@@ -93,11 +93,6 @@ func setServerShuttingDown() {
 }
 
 // TerminateServer : procédure de terminaison propre.
-// - marque le serveur comme en arrêt (setServerShuttingDown)
-// - attend que toutes les opérations en cours soient terminées et que les autres clients se déconnectent
-// - envoie des messages de statut au client de contrôle qui a demandé la terminaison
-// - ferme shutdownChan (une seule fois) pour déclencher la fermeture des listeners
-// - appelle os.Exit(0) après un court délai pour s'assurer d'une sortie complète.
 func TerminateServer(conn net.Conn) {
 	log.Println("Initiation de la terminaison du serveur...")
 	setServerShuttingDown() // Indiquer que le serveur s'arrête
@@ -128,7 +123,7 @@ func TerminateServer(conn net.Conn) {
 			log.Println("Erreur lors de l'envoi du message d'attente de terminaison:", err)
 		}
 
-		// Attente active courte (polling simple). On pourrait améliorer avec condition variables.
+		// Attente active courte (polling simple).
 		time.Sleep(1 * time.Second)
 	}
 

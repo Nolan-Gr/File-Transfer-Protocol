@@ -148,9 +148,7 @@ func DebugServer(conn net.Conn, writer *bufio.Writer) bool {
 		getCompteurOperations(),
 		time.Since(connectiontime).Truncate(time.Second).String())
 
-	if err := p.Send_message(conn, writer, msg); err != nil {
-		log.Println("Erreur lors de l'envoi du message de debug:", err)
-		return false
-	}
+	log.Println(msg)
+	log.Println(p.GetHistorique())
 	return true
 }
