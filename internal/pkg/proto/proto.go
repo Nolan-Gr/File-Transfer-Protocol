@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"log"
 	"net"
-	"os"
 	"strings"
 	"time"
 )
@@ -68,25 +67,21 @@ func Receive_message(conn net.Conn, in *bufio.Reader) (string, error) {
 	return message, nil
 }
 
-// GOTO : navigue vers un dossier donné
-func GOTO(commGoto []string, conn net.Conn, writer *bufio.Writer) {
-	if commGoto[1] == ".." {
-		if err := Send_message(conn, writer, "back"); err != nil {
-			log.Println("Erreur lors de l'envoi de 'Start':", err)
-			return
-		}
-	} else if commGoto[2] != commGoto[1] {
-		var fichiers, err = os.ReadDir(commGoto[2])
-		if err != nil {
-			log.Println(err)
-		}
-		for _, fichier := range fichiers {
-			if fichier.Name() == commGoto[1] && fichier.IsDir() {
-				if err := Send_message(conn, writer, "Start"); err != nil {
-					log.Println("Erreur lors de l'envoi de 'Start':", err)
-					return
-				}
-			}
+// ParcourPath retourne l'index de la dernière barre '/' dans split[2].
+// Utilisé pour remonter d'un niveau dans le chemin local.
+// Remarque : si il n'y a pas de '/', la fonction plantera (index out of range).
+func ParcourPath(split string) int {
+	var posTab []int
+	for i, pos := range split {
+		if pos == '/' {
+			// on enregistre les positions où il y a une barre
+			posTab = append(posTab, i)
 		}
 	}
+	// On renvoie la position de la dernière barre trouvée
+	if len(posTab) == 0 {
+		return -1
+	}
+	log.Println(posTab)
+	return posTab[len(posTab)-1]
 }

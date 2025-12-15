@@ -120,7 +120,7 @@ func HandleClient(conn net.Conn) {
 				}
 
 			} else if commGet[0] == "GOTO" {
-				p.GOTO(commGet, conn, writer)
+				GOTO(commGet, conn, writer)
 
 			} else if cleanedMsg == "end" {
 				// Fin de la session cliente.
@@ -291,7 +291,7 @@ func HandleControlClient(conn net.Conn) {
 				tree(conn, writer, reader)
 
 			} else if commHideReveal[0] == "GOTO" {
-				p.GOTO(commHideReveal, conn, writer)
+				GOTO(commHideReveal, conn, writer)
 
 			} else {
 				log.Println("Message inattendu du client:", cleanedMsg)

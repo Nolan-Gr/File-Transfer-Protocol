@@ -185,14 +185,21 @@ func RunClient(conn net.Conn) {
 			// GOTO <target> : change la position locale en interrogeant le serveur
 		case command == "GOTO":
 			split = append(split, posActuelle)
+			var index = p.ParcourPath(split[2]) + 1
+			if index == -1 {
+				index = 0
+			}
+			log.Println(split[2][index:len(split[2])], split)
 			if split[1] == ".." {
 				// remonter d'un niveau
 				posActuelle = GOTOClient(conn, posActuelle, split, writer, reader)
+			} else if split[2][index:len(split[2])] == split[1] {
+				log.Println("vous êtes déjà dans ce fichier")
 			} else {
+				log.Println("position", posActuelle)
 				// descendre dans un sous-dossier : on ajoute "/<nom>" au chemin local
 				posActuelle = posActuelle + "/" + GOTOClient(conn, posActuelle, split, writer, reader)
 			}
-
 			// Commande inconnue : informer le serveur et afficher la réponse
 		default:
 			if err := p.Send_message(conn, writer, "Unknown"); err != nil {
