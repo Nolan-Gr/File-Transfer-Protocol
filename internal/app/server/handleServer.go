@@ -152,7 +152,7 @@ func HandleClient(conn net.Conn) {
 		// Si le logger est en mode debug, on renvoie des infos de debug au client.
 		if slog.Default().Enabled(context.Background(), slog.LevelDebug) {
 			log.Println("debug ")
-			DebugServer(writer)
+			DebugServer(conn, writer)
 		}
 	}
 }
@@ -310,7 +310,7 @@ func HandleControlClient(conn net.Conn) {
 
 		if slog.Default().Enabled(context.Background(), slog.LevelDebug) {
 			log.Println("debug ")
-			DebugServer(writer)
+			DebugServer(conn, writer)
 		}
 	}
 }

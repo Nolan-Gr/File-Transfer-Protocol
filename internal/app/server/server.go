@@ -142,13 +142,13 @@ func ClientLogOut(conn net.Conn) {
 // DebugServer : envoie des informations de debug au client.
 // Utilise getCompteurClient/getCompteurOperations et connectiontime pour l'uptime.
 // Ici p.Send_message est appelé avec nil pour le net.Conn car seule la writer est utilisée.
-func DebugServer(writer *bufio.Writer) bool {
+func DebugServer(conn net.Conn, writer *bufio.Writer) bool {
 	msg := fmt.Sprintf("DebugInfo: clients=%d, operations=%d, uptime=%s",
 		getCompteurClient(),
 		getCompteurOperations(),
 		time.Since(connectiontime).Truncate(time.Second).String())
 
-	if err := p.Send_message(nil, writer, msg); err != nil {
+	if err := p.Send_message(conn, writer, msg); err != nil {
 		log.Println("Erreur lors de l'envoi du message de debug:", err)
 		return false
 	}
