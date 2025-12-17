@@ -45,8 +45,8 @@ func ParcourFolder(fichiers []os.DirEntry, list string, size int) (string, int) 
 // tree : construit et envoie l'arbre complet du dossier "Docs".
 // Protocole similaire à LIST : Start -> attendre OK -> envoyer la liste complète.
 func tree(conn net.Conn, writer *bufio.Writer, reader *bufio.Reader) bool {
-	log.Println("tree func")
 
+	//Lecture du fichier à la racine
 	var fichiers, err = os.ReadDir("Docs")
 	if err != nil {
 		log.Println("Erreur lecture dossier Docs:", err)
@@ -56,6 +56,7 @@ func tree(conn net.Conn, writer *bufio.Writer, reader *bufio.Reader) bool {
 	var list = ""
 	var size = 0
 
+	//Envoit du message pour commencer
 	if err := p.Send_message(conn, writer, "Start"); err != nil {
 		var netErr net.Error
 		if errors.As(err, &netErr) && netErr.Timeout() {
@@ -64,7 +65,7 @@ func tree(conn net.Conn, writer *bufio.Writer, reader *bufio.Reader) bool {
 		return false
 	}
 
-	log.Println(fichiers)
+	//Reception reponse du client
 	data, err := p.Receive_message(conn, reader)
 	if err != nil {
 		var netErr net.Error
@@ -73,8 +74,8 @@ func tree(conn net.Conn, writer *bufio.Writer, reader *bufio.Reader) bool {
 		}
 		return false
 	}
-	log.Println("data:", data)
 
+	//Si le message est ok alors début du parcours
 	if strings.TrimSpace(data) == "OK" {
 		var templist, tempsize = ParcourFolder(fichiers, list, size)
 		log.Println("list : ", tempsize, templist)

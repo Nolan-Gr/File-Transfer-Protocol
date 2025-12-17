@@ -21,7 +21,7 @@ var (
 )
 
 // on démarre une goroutine pour lire le canal et construire le cache.
-// On ne loggue que si le mode debug est actif 
+// On ne loggue que si le mode debug est actif
 func init() {
 	go func() {
 		for msg := range messageHistory {
@@ -78,7 +78,6 @@ func Send_message(conn net.Conn, out *bufio.Writer, message string) error {
 
 	return nil
 }
-
 
 func Receive_message(conn net.Conn, in *bufio.Reader) (string, error) {
 	// Définir une deadline pour l'opération de lecture
