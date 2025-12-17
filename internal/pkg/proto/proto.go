@@ -9,7 +9,7 @@ import (
 	"time"
 )
 
-// MessageTimeout Timeout par défaut (peut être modifié via flag)
+// MessageTimeout=Timeout par défaut
 var MessageTimeout = 20 * time.Second
 
 // --- GESTION DE L'HISTORIQUE DES MESSAGES ---
@@ -64,7 +64,7 @@ func Send_message(conn net.Conn, out *bufio.Writer, message string) error {
 	defer func(conn net.Conn, t time.Time) {
 		err := conn.SetWriteDeadline(t)
 		if err != nil {
-			// log.Println("Erreur SetWriteDeadline defer:", err)
+			log.Println("Erreur SetWriteDeadline defer:", err)
 		}
 	}(conn, time.Time{})
 
@@ -81,7 +81,7 @@ func Send_message(conn net.Conn, out *bufio.Writer, message string) error {
 	return nil
 }
 
-// Receive_message lit un message avec un timeout.
+// --- GESTION DEs ECHANGES DE MESSAGES ---
 func Receive_message(conn net.Conn, in *bufio.Reader) (string, error) {
 	// Définir un deadline pour l'opération de lecture
 	if err := conn.SetReadDeadline(time.Now().Add(MessageTimeout)); err != nil {
@@ -92,7 +92,7 @@ func Receive_message(conn net.Conn, in *bufio.Reader) (string, error) {
 	defer func(conn net.Conn, t time.Time) {
 		err := conn.SetReadDeadline(t)
 		if err != nil {
-			// log.Println("Erreur SetReadDeadline defer:", err)
+			log.Println("Erreur SetReadDeadline defer:", err)
 		}
 	}(conn, time.Time{})
 

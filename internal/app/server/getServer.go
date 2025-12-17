@@ -7,6 +7,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"strings"
 
 	p "gitlab.univ-nantes.fr/iutna.info2.r305/proj/internal/pkg/proto"
 )
@@ -23,7 +24,7 @@ func Getserver(conn net.Conn, commGet []string, writer *bufio.Writer, reader *bu
 	var found = false
 
 	for _, fichier := range fichiers {
-		if commGet[1] == fichier.Name() {
+		if commGet[1] == fichier.Name() && !strings.HasPrefix(fichier.Name(), ".") {
 			found = true
 			log.Println("Fichier trouvé:", fichier.Name())
 			var path = filepath.Join(commGet[2], fichier.Name())
