@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"net"
 	"os"
+	"strconv"
 	"strings"
 
 	p "gitlab.univ-nantes.fr/iutna.info2.r305/proj/internal/pkg/proto"
@@ -140,7 +141,8 @@ func RunClient(conn net.Conn) {
 
 			// HELP : le client reçoit la liste des commandes qu'il peut effectuer
 		case command == "HELP":
-			if err := p.Send_message(conn, writer, "Help"); err != nil {
+			msg := "Help " + strconv.FormatBool(slog.Default().Enabled(context.Background(), slog.LevelDebug))
+			if err := p.Send_message(conn, writer, msg); err != nil {
 				var netErr net.Error
 				if errors.As(err, &netErr) && netErr.Timeout() {
 					log.Println("Timeout lors de l'envoi de 'help':", err)

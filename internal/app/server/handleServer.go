@@ -100,8 +100,11 @@ func HandleClient(conn net.Conn) {
 				log.Println("Commande inconnue. Veuillez entrer HELP pour avoir la liste de commande.")
 
 				// HELP : le client reçoit la liste des commandes qu'il peut effectuer
-			} else if cleanedMsg == "Help" {
+			} else if commGet[0] == "Help" {
 				helpMessage := "Commandes disponibles : LIST, GET <filename>, GOTO <target>, TREE, HELP, END"
+				if commGet[1] == "true" {
+					helpMessage += ", MESSAGES"
+				}
 				if err := p.Send_message(conn, writer, helpMessage); err != nil {
 					var netErr net.Error
 					if errors.As(err, &netErr) && netErr.Timeout() {
@@ -240,8 +243,11 @@ func HandleControlClient(conn net.Conn) {
 				log.Println("Commande inconnue. Veuillez entrer HELP pour avoir la liste de commande.")
 
 				// HELP : le client reçoit la liste des commandes qu'il peut effectuer
-			} else if cleanedMsg == "Help" {
-				helpMessage := "Commandes disponibles : LIST, HIDE <filename>, REVEAL <filename>, GOTO <target>, TREE, HELP, END et TERMINATE  "
+			} else if commHideReveal[0] == "Help" {
+				helpMessage := "Commandes disponibles : LIST, HIDE <filename>, REVEAL <filename>, GOTO <target>, TREE, HELP, END, TERMINATE"
+				if commHideReveal[1] == "true" {
+					helpMessage += ", MESSAGES"
+				}
 				if err := p.Send_message(conn, writer, helpMessage); err != nil {
 					var netErr net.Error
 					if errors.As(err, &netErr) && netErr.Timeout() {
