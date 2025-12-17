@@ -13,27 +13,25 @@ import (
 )
 
 // Compteurs globaux protégés par un mutex.
-// - compteurClient : nombre de connexions clientes actives (inclut control + normal).
-// - compteurOperations : nombre d'opérations (LIST/GET/HIDE/REVEAL) en cours.
+// - compteurClient : nombre de connexions clientes actives.
+// - compteurOperations : nombre d'opérations (LIST/GET/HIDE/REVEAL et autres) en cours.
 var (
 	compteurClient     int
 	compteurOperations int
 	compteurMutex      sync.Mutex
 )
 
-// Canal de signal de terminaison : on le ferme pour indiquer à toutes
-// les goroutines d'arrêter d'accepter/invoquer de nouvelles connexions.
-// shutdownOnce évite un double close (panique).
+// Canal de signal de terminaison : on le ferme pour indiquer à toutes les goroutines de bloquer de nouvelles connexions.
+// shutdownOnce évite de fermer deux fois.
 var shutdownChan = make(chan struct{})
 var shutdownOnce sync.Once
 
 // Booléen et mutex pour indiquer si le serveur est en train de se terminer.
-// L'accès se fait via setServerShuttingDown/isServerShuttingDown pour être thread-safe.
 var terminaisonDuServeur = false
 var terminaisonMutex sync.RWMutex
 
 // ClientIO : stocke reader/writer du client de contrôle qui a demandé TERMINATE.
-// On garde ces streams pour pouvoir envoyer des messages d'état pendant la terminaison.
+// On garde ces informations pour pouvoir envoyer des messages d'état pendant la terminaison.
 type ClientIO struct {
 	writer *bufio.Writer
 	reader *bufio.Reader
@@ -44,7 +42,7 @@ var (
 	clientTerminantMutex sync.Mutex
 )
 
-// Helpers thread-safe pour manipuler les compteurs.
+// fonctions pour manipuler les compteurs.
 func incrementerClient() int {
 	compteurMutex.Lock()
 	defer compteurMutex.Unlock()
@@ -80,7 +78,7 @@ func getCompteurClient() int {
 	return compteurClient
 }
 
-// Accès thread-safe au drapeau de terminaison du serveur.
+// Accès au flag de terminaison du serveur.
 func isServerShuttingDown() bool {
 	terminaisonMutex.RLock()
 	defer terminaisonMutex.RUnlock()
@@ -92,21 +90,21 @@ func setServerShuttingDown() {
 	terminaisonDuServeur = true
 }
 
-// TerminateServer : procédure de terminaison propre.
+// TerminateServer : procédure de terminaison du serveur
 func TerminateServer(conn net.Conn) {
 	log.Println("Initiation de la terminaison du serveur...")
-	setServerShuttingDown() // Indiquer que le serveur s'arrête
+	setServerShuttingDown() // Indique que le serveur s'arrête
 
 	clientTerminantMutex.Lock()
 	writer := clientTerminant.writer
 	clientTerminantMutex.Unlock()
 
-	// Boucle d'attente : on surveille ops et clients.
+	// Boucle d'attente : on surveille opérations et clients.
 	for {
 		ops := getCompteurOperations()
 		clients := getCompteurClient()
-		// Soustraire le client de contrôle qui a initié la commande,
-		// car il est toujours connecté pendant la procédure.
+
+		// Soustraire le client de contrôle qui a initié la commande
 		clientsApresControle := clients - 1
 
 		// Condition de sortie : aucune opération en cours et aucun client (hors control).
@@ -116,14 +114,10 @@ func TerminateServer(conn net.Conn) {
 
 		msg := fmt.Sprintf("Opérations en cours : %d, Clients actifs (hors contrôle) : %d. Attente...", ops, clientsApresControle)
 		log.Println(msg)
-
-		// On essaye d'envoyer le message d'état au client initiateur ;
-		// en cas d'erreur d'envoi on continue (ne bloque pas la terminaison).
 		if err := p.Send_message(conn, writer, msg); err != nil {
 			log.Println("Erreur lors de l'envoi du message d'attente de terminaison:", err)
 		}
 
-		// Attente active courte (polling simple).
 		time.Sleep(1 * time.Second)
 	}
 
@@ -134,7 +128,7 @@ func TerminateServer(conn net.Conn) {
 		log.Println("Erreur lors de l'envoi du message final de terminaison:", err)
 	}
 
-	// Fermer shutdownChan une seule fois pour signaler aux goroutines d'arrêter.
+	// Fermer shutdownChan pour signaler aux goroutines d'arrêter.
 	shutdownOnce.Do(func() {
 		close(shutdownChan)
 	})
@@ -142,7 +136,7 @@ func TerminateServer(conn net.Conn) {
 	// ClientLogOut sera appelé par le defer de HandleControlClient après le retour.
 	log.Println("Terminaison complète, fermeture du serveur...")
 
-	// On force une sortie du process après un court délai pour s'assurer de la fermeture.
+	// On force une sortie après un court délai pour s'assurer de la fermeture.
 	time.Sleep(500 * time.Millisecond)
 	os.Exit(0)
 }

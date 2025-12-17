@@ -11,8 +11,8 @@ import (
 	p "gitlab.univ-nantes.fr/iutna.info2.r305/proj/internal/pkg/proto"
 )
 
-// TerminateClient envoie la commande TERMINATE au serveur de contrôle et attend la progression.
-// La boucle lit tous les messages jusqu'à ce que le serveur signale qu'il s'arrête.
+// TerminateClient envoie la commande TERMINATE au serveur de contrôle et attend la progression
+// La boucle lit tous les messages jusqu'à ce que le serveur dit qu'il s'arrête
 func TerminateClient(conn net.Conn, writer *bufio.Writer, reader *bufio.Reader) bool {
 	if err := p.Send_message(conn, writer, "Terminate"); err != nil {
 		var netErr net.Error
@@ -41,7 +41,7 @@ func TerminateClient(conn net.Conn, writer *bufio.Writer, reader *bufio.Reader) 
 
 		rep = strings.TrimSpace(rep)
 
-		// On affiche les différents messages d'avancement ou le message final.
+		// On affiche les différents messages d'avancement ou le message final
 		if rep == "Terminaison finie, le serveur s'éteint" {
 			log.Println(rep)
 			log.Println("Le serveur s'est arrêté avec succès")

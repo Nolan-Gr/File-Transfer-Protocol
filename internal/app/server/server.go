@@ -12,16 +12,13 @@ import (
 	p "gitlab.univ-nantes.fr/iutna.info2.r305/proj/internal/pkg/proto"
 )
 
-// connectiontime : moment où le serveur normal a commencé à écouter.
-// Utilisé pour calculer l'uptime dans DebugServer.
+// connectiontime : moment où le serveur normal a commencé à écouter
 var connectiontime time.Time
 
 // WaitGroup pour attendre la fin des deux serveurs (normal + contrôle)
-// lors d'un RunServer.
 var serverWg sync.WaitGroup
 
-// RunServer lance deux listeners concurrents : un server "normal" et un server "control".
-// On utilise un WaitGroup pour attendre leur terminaison.
+// RunServer lance deux listeners concurrents : un server "normal" et un server "control"
 func RunServer(port *string, controlPort *string) {
 
 	serverWg.Add(2)
@@ -33,7 +30,7 @@ func RunServer(port *string, controlPort *string) {
 	log.Println("Tous les serveurs sont arrêtés")
 }
 
-// Listener principal pour les clients "normaux".
+// Listener principal pour les clients pas admins
 func runNormalServer(port *string) {
 	defer serverWg.Done()
 
@@ -45,7 +42,7 @@ func runNormalServer(port *string) {
 	// enregistrer le temps de début pour l'uptime
 	connectiontime = time.Now()
 
-	// On ferme le listener à la sortie de la fonction.
+	// On ferme le listener à la sortie de la fonction
 	defer func() {
 		err := l.Close()
 		if err != nil {
@@ -55,8 +52,8 @@ func runNormalServer(port *string) {
 	}()
 	slog.Debug("Now listening on port " + *port)
 
-	// Goroutine qui ferme le listener lorsque shutdownChan est fermé.
-	// Cela permet à l'Accept() bloquant de sortir avec une erreur contrôlable.
+	// Goroutine qui ferme le listener lorsque shutdownChan est fermé
+	// Cela permet à l'Accept() bloquant de sortir avec une erreur contrôlable
 	go func() {
 		<-shutdownChan
 		err := l.Close()
@@ -68,12 +65,12 @@ func runNormalServer(port *string) {
 	for {
 		c, err := l.Accept()
 		if err != nil {
-			// Si on est en cours d'arrêt, on termine proprement la boucle.
+			// On est en cours d'arrêt, on termine proprement la boucle
 			if isServerShuttingDown() {
 				slog.Info("Server normal terminé, arrêt des nouvelles connexions")
 				return
 			}
-			// Erreur non liée au shutdown : on log et on continue.
+			// Erreur non liée au shutdown
 			slog.Error(err.Error())
 			continue
 		}
@@ -82,7 +79,7 @@ func runNormalServer(port *string) {
 	}
 }
 
-// Listener pour le port de contrôle (commande TERMINATE, HIDE/REVEAL, etc.).
+// Listener pour le port de contrôle
 func runControlServer(controlPort *string) {
 	defer serverWg.Done()
 
@@ -101,7 +98,7 @@ func runControlServer(controlPort *string) {
 	}()
 	slog.Debug("Now listening on port " + *controlPort)
 
-	// Même mécanisme de fermeture via shutdownChan.
+	// Même mécanisme de fermeture via shutdownChan
 	go func() {
 		<-shutdownChan
 		err := l.Close()
@@ -125,8 +122,7 @@ func runControlServer(controlPort *string) {
 	}
 }
 
-// ClientLogOut : décrémente le compteur client et ferme la connexion.
-// Appelée en defer à la sortie des handlers.
+// ClientLogOut : décrémente le compteur client et ferme la connexion
 func ClientLogOut(conn net.Conn) {
 	taille := decrementerClient()
 	log.Println("nombre de client : ", taille)
@@ -139,9 +135,7 @@ func ClientLogOut(conn net.Conn) {
 	}
 }
 
-// DebugServer : envoie des informations de debug au client.
-// Utilise getCompteurClient/getCompteurOperations et connectiontime pour l'uptime.
-// Ici p.Send_message est appelé avec nil pour le net.Conn car seule la writer est utilisée.
+// DebugServer : envoie des informations de debug au client
 func DebugServer(conn net.Conn, writer *bufio.Writer) bool {
 	msg := fmt.Sprintf("DebugInfo: clients=%d, operations=%d, uptime=%s",
 		getCompteurClient(),

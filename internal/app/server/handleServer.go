@@ -13,7 +13,7 @@ import (
 	p "gitlab.univ-nantes.fr/iutna.info2.r305/proj/internal/pkg/proto"
 )
 
-// HandleClient : logique pour un client "normal".
+// HandleClient : logique pour un client "normal"
 func HandleClient(conn net.Conn) {
 	defer ClientLogOut(conn)
 
@@ -25,7 +25,7 @@ func HandleClient(conn net.Conn) {
 	reader := bufio.NewReader(conn)
 	writer := bufio.NewWriter(conn)
 
-	// Envoyer greeting initial via protocole (Send_message gère le flush/format).
+	// Envoyer greeting initial via protocole (Send_message gère le flush/format)
 	if err := p.Send_message(conn, writer, "hello"); err != nil {
 		// Sensible aux erreurs réseau (timeouts etc.)
 		var netErr net.Error
@@ -36,7 +36,7 @@ func HandleClient(conn net.Conn) {
 	}
 
 	for {
-		// Boucle de réception de commandes.
+		// Boucle de réception de commandes
 		msg, err := p.Receive_message(conn, reader)
 		if err != nil {
 			var netErr net.Error
@@ -51,7 +51,7 @@ func HandleClient(conn net.Conn) {
 
 		var commGet = strings.Split(cleanedMsg, " ")
 
-		// Si le serveur n'est pas en train de se terminer, traiter les commandes.
+		// Si le serveur n'est pas en train de se terminer, traiter les commandes
 		if !isServerShuttingDown() {
 			log.Println("cleanedMessage :", cleanedMsg)
 			if cleanedMsg == "start" {
@@ -132,13 +132,13 @@ func HandleClient(conn net.Conn) {
 				return
 
 			} else {
-				// Message inattendu : on l'ignore (mais on log).
+				// Message inattendu : on l'ignore (mais on log)
 				log.Println("Message inattendu du client:", cleanedMsg)
 				continue
 			}
 
 		} else {
-			// Si le serveur est en cours d'arrêt : informer le client et couper la connexion.
+			// Si le serveur est en cours d'arrêt : informer le client et couper la connexion
 			if err := p.Send_message(conn, writer, "Server terminating, connection closing."); err != nil {
 				var netErr net.Error
 				if errors.As(err, &netErr) && netErr.Timeout() {
@@ -148,7 +148,7 @@ func HandleClient(conn net.Conn) {
 			return
 		}
 
-		// Si le logger est en mode debug, on renvoie des infos de debug au client.
+		// Si le logger est en mode debug, on renvoie des infos de debug au client
 		if slog.Default().Enabled(context.Background(), slog.LevelDebug) {
 			log.Println("debug ")
 			DebugServer(conn, writer)
@@ -156,7 +156,7 @@ func HandleClient(conn net.Conn) {
 	}
 }
 
-// HandleControlClient : logique pour le client de contrôle (suppression de l'ancienne logique d'historique).
+// HandleControlClient : logique pour le client de contrôle (suppression de l'ancienne logique d'historique)
 func HandleControlClient(conn net.Conn) {
 	defer ClientLogOut(conn)
 

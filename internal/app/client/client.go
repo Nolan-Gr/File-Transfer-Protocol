@@ -110,7 +110,6 @@ func RunClient(conn net.Conn) {
 
 		var split = strings.Split(line, " ")
 		command := strings.ToUpper(split[0])
-		log.Println(command)
 		// Déterminer si c'est le port de contrôle (port spécial pour certaines commandes)
 		isControlPort := strings.Contains(Remote, "3334")
 

@@ -14,14 +14,14 @@ var MessageTimeout = 20 * time.Second
 
 // --- GESTION DE L'HISTORIQUE DES MESSAGES ---
 var (
-	// messageHistory est un canal de type string, chaque message de protocole y est envoyé.
+	// messageHistory est un canal
 	messageHistory = make(chan string, 1000)
-	// historyCache est la liste réelle des messages pour l'affichage.
+	// historyCache est la liste des messages qu'on prends pour l'affichage.
 	historyCache = []string{"Historique des messages : \n"}
 )
 
-// init démarre une goroutine pour lire le canal et construire le cache.
-// On ne loggue que si le mode debug est actif pour ne pas ralentir inutilement.
+// on démarre une goroutine pour lire le canal et construire le cache.
+// On ne loggue que si le mode debug est actif 
 func init() {
 	go func() {
 		for msg := range messageHistory {
@@ -32,11 +32,9 @@ func init() {
 
 // LogMessage ajoute un message formaté dans le canal d'historique.
 func LogMessage(direction string, msg string) {
-	// Si le canal est plein, le message est perdu, mais le programme ne bloque pas.
 	select {
 	case messageHistory <- fmt.Sprintf("%s message: %s \n", direction, strings.TrimSpace(msg)):
 	default:
-		// Optionnel : logguer la perte d'un message si le buffer est plein
 		log.Println("Avertissement: Le buffer d'historique de messages est plein.")
 	}
 }
@@ -46,7 +44,7 @@ func GetHistorique() []string {
 	return historyCache
 }
 
-// Send_message envoie un message avec un timeout.
+// --- GESTION DEs ECHANGES DE MESSAGES ---
 func Send_message(conn net.Conn, out *bufio.Writer, message string) error {
 	if !strings.HasSuffix(message, "\n") {
 		message += "\n"
@@ -55,12 +53,12 @@ func Send_message(conn net.Conn, out *bufio.Writer, message string) error {
 	// Log message envoyé
 	LogMessage("sent", message)
 
-	// Définir un deadline pour l'opération d'écriture
+	// Définir une deadline pour l'opération d'écriture
 	if err := conn.SetWriteDeadline(time.Now().Add(MessageTimeout)); err != nil {
 		return fmt.Errorf("erreur définition deadline écriture: %w", err)
 	}
 
-	// Réinitialiser le deadline après l'opération
+	// Réinitialiser la deadline après l'opération
 	defer func(conn net.Conn, t time.Time) {
 		err := conn.SetWriteDeadline(t)
 		if err != nil {
@@ -81,14 +79,14 @@ func Send_message(conn net.Conn, out *bufio.Writer, message string) error {
 	return nil
 }
 
-// --- GESTION DEs ECHANGES DE MESSAGES ---
+
 func Receive_message(conn net.Conn, in *bufio.Reader) (string, error) {
-	// Définir un deadline pour l'opération de lecture
+	// Définir une deadline pour l'opération de lecture
 	if err := conn.SetReadDeadline(time.Now().Add(MessageTimeout)); err != nil {
 		return "", fmt.Errorf("erreur définition deadline lecture: %w", err)
 	}
 
-	// Réinitialiser le deadline après l'opération
+	// Réinitialiser la deadline après l'opération
 	defer func(conn net.Conn, t time.Time) {
 		err := conn.SetReadDeadline(t)
 		if err != nil {
@@ -101,7 +99,7 @@ func Receive_message(conn net.Conn, in *bufio.Reader) (string, error) {
 		return "", fmt.Errorf("erreur lecture message: %w", err)
 	}
 
-	// Log message reçu
+	// Log du message reçu
 	LogMessage("received", message)
 
 	return message, nil
