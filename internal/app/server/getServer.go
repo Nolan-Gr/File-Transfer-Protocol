@@ -24,7 +24,7 @@ func Getserver(conn net.Conn, commGet []string, writer *bufio.Writer, reader *bu
 	var found = false
 
 	for _, fichier := range fichiers {
-		if commGet[1] == fichier.Name() && !strings.HasPrefix(fichier.Name(), ".") {
+		if commGet[1] == fichier.Name() && !strings.HasPrefix(fichier.Name(), ".") && !fichier.IsDir() {
 			found = true
 			log.Println("Fichier trouvé:", fichier.Name())
 			var path = filepath.Join(commGet[2], fichier.Name())
