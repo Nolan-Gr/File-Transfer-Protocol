@@ -33,7 +33,6 @@ func treeClient(conn net.Conn, split []string, writer *bufio.Writer, reader *buf
 	response = strings.TrimSpace(response)
 
 	if response == "Start" {
-		log.Println("entered start")
 		// Le serveur va envoyer la liste ; on confirme par "OK"
 		if err := p.Send_message(conn, writer, "OK"); err != nil {
 			var netErr net.Error
@@ -51,7 +50,6 @@ func treeClient(conn net.Conn, split []string, writer *bufio.Writer, reader *buf
 			}
 			return false
 		}
-		log.Println(data)
 
 		var datas = strings.Split(data, "--")
 		if split[1] == "Docs" {

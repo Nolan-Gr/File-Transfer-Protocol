@@ -26,7 +26,6 @@ func ParcourFolder(fichiers []os.DirEntry, list string, size int) (string, int) 
 		size = size + 1
 		if fichier.Name()[0] != '.' {
 			if fichier.IsDir() {
-				log.Println(filepath.Join("Docs/", fichier.Name()))
 				var newfichiers, err = os.ReadDir(filepath.Join("Docs/", fichier.Name()))
 				if err != nil {
 					log.Println("Erreur lecture sous-dossier:", err)
@@ -82,7 +81,6 @@ func tree(conn net.Conn, writer *bufio.Writer, reader *bufio.Reader) bool {
 		list = list + templist
 		size = tempsize
 		var newlist = "FileCnt : " + strconv.Itoa(size) + list
-		log.Println(newlist)
 
 		if err := p.Send_message(conn, writer, newlist); err != nil {
 			var netErr net.Error
