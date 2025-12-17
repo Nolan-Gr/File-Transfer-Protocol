@@ -113,12 +113,13 @@ func RunClient(conn net.Conn) {
 		// Déterminer si c'est le port de contrôle (port spécial pour certaines commandes)
 		isControlPort := strings.Contains(Remote, "3334")
 
-		switch {
-		// Le client se déconnecte localement
-		case command == "END":
-			return
+		// Le client se déconnecte
+		if command == "END" {
+			break
+		}
 
-			// MESSAGES : affiche l'historique des messages (commande locale client)
+		switch {
+		// MESSAGES : affiche l'historique des messages (commande locale client)
 		case command == "MESSAGES" && slog.Default().Enabled(context.Background(), slog.LevelDebug):
 			fmt.Println(strings.Trim(fmt.Sprint(p.GetHistorique()), "[]"))
 			continue
@@ -211,6 +212,7 @@ func RunClient(conn net.Conn) {
 
 			// Commande inconnue : informer le serveur et afficher la réponse
 		default:
+
 			if err := p.Send_message(conn, writer, "Unknown"); err != nil {
 				var netErr net.Error
 				if errors.As(err, &netErr) && netErr.Timeout() {
