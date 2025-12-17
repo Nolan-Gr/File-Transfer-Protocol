@@ -23,7 +23,7 @@ func GOTOClient(conn net.Conn, posActuelle string, split []string, writer *bufio
 			log.Println("Timeout lors de l'envoi de la commande GOTO:", err)
 		}
 		log.Println("Erreur lors de l'envoi de la commande:", err)
-		return "" // ERREUR RÉSEAU CRITIQUE
+		return "NO!" // ERREUR RÉSEAU CRITIQUE
 	}
 
 	var response, err = p.Receive_message(conn, reader)
@@ -33,10 +33,9 @@ func GOTOClient(conn net.Conn, posActuelle string, split []string, writer *bufio
 			log.Println("Timeout lors de la réception de la réponse GOTO:", err)
 		}
 		log.Println("Erreur lors de la réception de la réponse:", err)
-		return "" // ERREUR RÉSEAU CRITIQUE
+		return "NO!" // ERREUR RÉSEAU CRITIQUE
 	}
 	response = strings.TrimSpace(response)
-	log.Println(response)
 
 	// Interprétation des réponses serveur :
 	if response == "Start" {
@@ -51,7 +50,6 @@ func GOTOClient(conn net.Conn, posActuelle string, split []string, writer *bufio
 		}
 		return split[2][0:index]
 	} else { // Inclut NO! et toute autre réponse inattendue
-		log.Println("Navigation impossible ou réponse inattendue:", response)
 		return "NO!" // ÉCHEC DE NAVIGATION NON CRITIQUE
 	}
 }
@@ -71,6 +69,5 @@ func ParcourPath(split string) int {
 	if len(posTab) == 0 {
 		return -1
 	}
-	log.Println(posTab)
 	return posTab[len(posTab)-1]
 }

@@ -45,7 +45,7 @@ func GOTO(commGoto []string, conn net.Conn, writer *bufio.Writer) bool {
 
 	var foundDir = false
 	for _, fichier := range fichiers {
-		if fichier.Name() == target && fichier.IsDir() {
+		if fichier.Name() == target && fichier.IsDir() && fichier.Name()[0] != '.' {
 			foundDir = true
 			break
 		}

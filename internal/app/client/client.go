@@ -194,15 +194,9 @@ func RunClient(conn net.Conn) {
 
 			nouvellePos := GOTOClient(conn, posActuelle, split, writer, reader)
 
-			// 1. Vérification des erreurs réseau (GOTOClient retourne "" en cas d'échec Send/Receive)
-			if nouvellePos == "" {
-				log.Println("Erreur critique de communication GOTO. Fermeture.")
-				return
-			}
-
 			// 2. Traitement de la réponse NO! (Échec de navigation ou déjà là)
 			if nouvellePos == "NO!" {
-				log.Println("Le répertoire n'a pas changé. Continuer la boucle.")
+				log.Println("Naviguation impossible !")
 				continue
 			}
 
