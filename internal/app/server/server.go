@@ -142,7 +142,7 @@ func DebugServer(conn net.Conn, writer *bufio.Writer) bool {
 		getCompteurOperations(),
 		time.Since(connectiontime).Truncate(time.Second).String())
 
-	log.Println(msg)
+	slog.Debug(msg)
 	log.Println(p.GetHistorique())
 	return true
 }
